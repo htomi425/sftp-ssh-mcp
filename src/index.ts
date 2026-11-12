@@ -10,6 +10,7 @@ import { validateConnectionOptions } from './ssh/connection-config.js';
 import { createHostKeyVerifier } from './ssh/host-key.js';
 import { DEFAULT_EXEC_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, OutputLimiter } from './ssh/exec-limits.js';
 import { uploadFile, downloadFile } from './ssh/sftp-transfer.js';
+import { ConnectionGate, parseBoundedInteger, DEFAULT_MAX_TRANSFER_BYTES, DEFAULT_TRANSFER_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_CONNECTIONS } from './ssh/resource-limits.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 // 解析命令行参数
@@ -48,6 +49,13 @@ validateConnectionOptions({ host: HOST, username: USER, port: PORT, readyTimeout
 const hostKeyFingerprint = process.env.SSH_HOST_KEY_SHA256;
 if (!hostKeyFingerprint) throw new Error('SSH_HOST_KEY_SHA256 is required (SHA-256 host key digest in hex)');
 const hostVerifier = createHostKeyVerifier(hostKeyFingerprint);
+const transferOptions = {
+  maxBytes: parseBoundedInteger(process.env.SSH_MCP_MAX_TRANSFER_BYTES, DEFAULT_MAX_TRANSFER_BYTES, 1024, 1024 * 1024 * 1024, 'SSH_MCP_MAX_TRANSFER_BYTES'),
+  timeoutMs: parseBoundedInteger(process.env.SSH_MCP_TRANSFER_TIMEOUT_MS, DEFAULT_TRANSFER_TIMEOUT_MS, 1000, 600000, 'SSH_MCP_TRANSFER_TIMEOUT_MS'),
+};
+const connectionGate = new ConnectionGate(parseBoundedInteger(
+  process.env.SSH_MCP_MAX_CONNECTIONS, DEFAULT_MAX_CONCURRENT_CONNECTIONS, 1, 16, 'SSH_MCP_MAX_CONNECTIONS',
+));
 
 // MCP 服务器实例化
 const server = new McpServer({
@@ -172,7 +180,10 @@ server.tool(
 // 执行 SFTP 命令
 async function execSftpCommand(sshConfig: any, action: string, ...args: any[]) {
   return new Promise((resolve, reject) => {
+    let release: () => void;
+    try { release = connectionGate.acquire(); } catch (error) { reject(error); return; }
     const conn = new SSHClient();
+    conn.once('close', release);
     conn.on('ready', () => {
       conn.sftp((err, sftp) => {
         if (err) {
@@ -184,14 +195,14 @@ async function execSftpCommand(sshConfig: any, action: string, ...args: any[]) {
         switch (action) {
           case 'upload': {
             const [localPath, remotePath] = args as [string, string];
-            uploadFile(sftp, localPath, remotePath)
+            uploadFile(sftp, localPath, remotePath, transferOptions)
               .then(() => { resolve(undefined); conn.end(); })
               .catch((error) => { reject(error); conn.end(); });
             break;
           }
           case 'download': {
             const [remotePath, localPath] = args as [string, string];
-            downloadFile(sftp, remotePath, localPath)
+            downloadFile(sftp, remotePath, localPath, transferOptions)
               .then(() => { resolve(undefined); conn.end(); })
               .catch((error) => { reject(error); conn.end(); });
             break;
@@ -216,9 +227,10 @@ async function execSftpCommand(sshConfig: any, action: string, ...args: any[]) {
       });
     });
     conn.on('error', (err) => {
+      release();
       reject(new McpError(ErrorCode.InternalError, `SFTP connection error: ${err.message}`));
     });
-    conn.connect(sshConfig);
+    try { conn.connect(sshConfig); } catch (error) { release(); reject(error); }
   });
 }
 
@@ -260,7 +272,10 @@ server.tool(
 
 async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: string]: unknown; content: ({ [x: string]: unknown; type: "text"; text: string; } | { [x: string]: unknown; type: "image"; data: string; mimeType: string; } | { [x: string]: unknown; type: "audio"; data: string; mimeType: string; } | { [x: string]: unknown; type: "resource"; resource: any; })[] }> {
   return new Promise((resolve, reject) => {
+    let release: () => void;
+    try { release = connectionGate.acquire(); } catch (error) { reject(error); return; }
     const conn = new SSHClient();
+    conn.once('close', release);
     const output = new OutputLimiter(DEFAULT_MAX_OUTPUT_BYTES);
     let stdout = '';
     let stderr = '';
@@ -274,6 +289,7 @@ async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: st
       settled = true;
       clearTimeout(timer);
       conn.end();
+      release();
       if (error) {
         reject(new McpError(ErrorCode.InternalError, error.message));
       } else {
