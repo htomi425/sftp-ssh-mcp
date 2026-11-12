@@ -9,6 +9,7 @@ import { formatDirectoryListing } from './ssh/directory-listing.js';
 import { validateConnectionOptions } from './ssh/connection-config.js';
 import { createHostKeyVerifier } from './ssh/host-key.js';
 import { DEFAULT_EXEC_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, OutputLimiter } from './ssh/exec-limits.js';
+import { uploadFile, downloadFile } from './ssh/sftp-transfer.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 // 解析命令行参数
@@ -69,7 +70,6 @@ server.tool(
   async ({ localPath, remotePath }) => { // 工具实现
     try {
       const fs = await import('fs/promises');
-      const fileData = await fs.readFile(localPath);
       const sshConfig: any = {
         host: HOST,
         port: PORT,
@@ -83,7 +83,7 @@ server.tool(
       } else if (KEY) {
         sshConfig.privateKey = await fs.readFile(KEY, 'utf8');
       }
-      await execSftpCommand(sshConfig, 'upload', fileData, remotePath);
+      await execSftpCommand(sshConfig, 'upload', localPath, remotePath);
       return {
         content: [{ // 返回结果
           type: 'text', // 结果类型
@@ -123,13 +123,7 @@ server.tool(
     const fs = await import('fs/promises');
     sshConfig.privateKey = await fs.readFile(KEY, 'utf8');
   }
-  const result = await execSftpCommand(sshConfig, 'download', remotePath);
-  // 由于 result 类型为 unknown，需要确保它是 Buffer 类型才能传递给 fs.writeFile
-  if (result instanceof Buffer) {
-    await fs.writeFile(localPath, result);
-  } else {
-    throw new McpError(ErrorCode.InternalError, `Download failed: 期望结果为 Buffer 类型，但得到 ${typeof result}`);
-  }
+  await execSftpCommand(sshConfig, 'download', remotePath, localPath);
       return { content: [{ type: 'text', text: `File downloaded to ${localPath}` }] };
     } catch (err: any) {
       if (err instanceof McpError) throw err;
@@ -189,27 +183,17 @@ async function execSftpCommand(sshConfig: any, action: string, ...args: any[]) {
 
         switch (action) {
           case 'upload': {
-            const [data, remotePath] = args;
-            const writeStream = sftp.createWriteStream(remotePath);
-            writeStream.write(data);
-            writeStream.end();
-            writeStream.on('close', () => {
-              resolve({ content: [{ type: 'text', text: `File uploaded to ${remotePath}` }] });
-              conn.end();
-            });
+            const [localPath, remotePath] = args as [string, string];
+            uploadFile(sftp, localPath, remotePath)
+              .then(() => { resolve(undefined); conn.end(); })
+              .catch((error) => { reject(error); conn.end(); });
             break;
           }
           case 'download': {
-            const [remotePath] = args;
-            const readStream = sftp.createReadStream(remotePath);
-            let data = Buffer.from('');
-            readStream.on('data', (chunk: Buffer) => {
-              data = Buffer.concat([data, chunk]);
-            });
-            readStream.on('end', () => {
-              resolve(data);
-              conn.end();
-            });
+            const [remotePath, localPath] = args as [string, string];
+            downloadFile(sftp, remotePath, localPath)
+              .then(() => { resolve(undefined); conn.end(); })
+              .catch((error) => { reject(error); conn.end(); });
             break;
           }
           case 'list': {
