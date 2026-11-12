@@ -116,3 +116,13 @@ test('real SSH: SFTP upload refuses an existing remote destination', { skip: !en
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('real SSH: authentication rejects an untrusted private key', { skip: !enabled }, async () => {
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { privateKey } = generateKeyPairSync('ed25519');
+  const unrelatedKey = privateKey.export({ type: 'pkcs8', format: 'pem' });
+  await assert.rejects(
+    () => connect(unrelatedKey, createHostKeyVerifier(hostKeyHex)),
+    /authentication methods failed|authentication/i,
+  );
+});
