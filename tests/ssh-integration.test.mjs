@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Client } from 'ssh2';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHostKeyVerifier } from '../build/ssh/host-key.js';
@@ -71,4 +69,50 @@ test('real SSH: incorrect host key is rejected', { skip: !enabled }, async () =>
   const privateKey = await readFile(privateKeyPath);
   const incorrect = hostKeyHex.replace(/^./, hostKeyHex[0] === 'a' ? 'b' : 'a');
   await assert.rejects(() => connect(privateKey, createHostKeyVerifier(incorrect)));
+});
+
+test('real SSH: SFTP rejects oversized upload and removes staged remote file', { skip: !enabled }, async () => {
+  const privateKey = await readFile(privateKeyPath);
+  const client = await connect(privateKey, createHostKeyVerifier(hostKeyHex));
+  const dir = await mkdtemp(join(tmpdir(), 'ssh-mcp-integration-limit-'));
+  const remote = '/tmp/ssh-mcp-limit-' + process.pid + '-' + Date.now() + '.txt';
+  try {
+    const sftp = await openSftp(client);
+    const source = join(dir, 'oversized.txt');
+    await writeFile(source, 'larger than four bytes');
+    await assert.rejects(() => uploadFile(sftp, source, remote, { maxBytes: 4 }), /size limit/);
+    await assert.rejects(() => downloadFile(sftp, remote, join(dir, 'missing.txt')), /No such file|ENOENT|not found/i);
+    const files = await new Promise((resolve, reject) => sftp.readdir('/tmp', (err, list) => err ? reject(err) : resolve(list)));
+    assert.equal(files.some(entry => entry.filename.startsWith(remote.split('/').at(-1) + '.ssh-mcp-')), false);
+  } finally {
+    client.end();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('real SSH: SFTP upload refuses an existing remote destination', { skip: !enabled }, async () => {
+  const privateKey = await readFile(privateKeyPath);
+  const client = await connect(privateKey, createHostKeyVerifier(hostKeyHex));
+  const dir = await mkdtemp(join(tmpdir(), 'ssh-mcp-integration-existing-'));
+  const remote = '/tmp/ssh-mcp-existing-' + process.pid + '-' + Date.now() + '.txt';
+  try {
+    const sftp = await openSftp(client);
+    const source = join(dir, 'source.txt');
+    await writeFile(source, 'replacement');
+    await new Promise((resolve, reject) => {
+      const stream = sftp.createWriteStream(remote, { flags: 'wx' });
+      stream.on('error', reject);
+      stream.on('close', resolve);
+      stream.end('original');
+    });
+    await assert.rejects(() => uploadFile(sftp, source, remote), /already exists/);
+    const target = join(dir, 'target.txt');
+    await downloadFile(sftp, remote, target);
+    assert.equal(await readFile(target, 'utf8'), 'original');
+  } finally {
+    const sftp = await openSftp(client);
+    await new Promise(resolve => sftp.unlink(remote, () => resolve()));
+    client.end();
+    await rm(dir, { recursive: true, force: true });
+  }
 });
