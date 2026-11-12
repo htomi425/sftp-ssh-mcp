@@ -73,3 +73,24 @@ test('download rejects excess bytes without leaving a partial destination', asyn
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('upload aborts a stalled SFTP destination on timeout and requests cleanup', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ssh-mcp-timeout-'));
+  try {
+    const local = join(dir, 'source.txt');
+    await writeFile(local, Buffer.alloc(128 * 1024, 65));
+    let removed = false;
+    const sftp = {
+      stat: (_path, cb) => cb(Object.assign(new Error('not found'), { code: 2 })),
+      unlink: (_path, cb) => { removed = true; cb(null); },
+      createWriteStream: () => new Writable({
+        highWaterMark: 1,
+        write(_chunk, _encoding, _callback) { /* simulate stalled network */ },
+      }),
+    };
+    await assert.rejects(() => uploadFile(sftp, local, '/remote.txt', { timeoutMs: 1000 }), /abort|timeout/i);
+    assert.equal(removed, true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
