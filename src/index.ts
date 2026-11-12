@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { formatCommandResult } from './ssh/command-result.js';
 import { formatDirectoryListing } from './ssh/directory-listing.js';
 import { validateConnectionOptions } from './ssh/connection-config.js';
-import { createHostKeyVerifier } from './ssh/host-key.js';
+import { parseTargets, selectTarget, sshConfigForTarget } from './ssh/targets.js';
 import { DEFAULT_EXEC_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, OutputLimiter } from './ssh/exec-limits.js';
 import { uploadFile, downloadFile } from './ssh/sftp-transfer.js';
 import { ConnectionGate, parseBoundedInteger, DEFAULT_MAX_TRANSFER_BYTES, DEFAULT_TRANSFER_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_CONNECTIONS } from './ssh/resource-limits.js';
@@ -44,11 +44,11 @@ function validateConfig(config: Record<string, string>) {
   }
 }
 
-validateConfig(argvConfig);
-validateConnectionOptions({ host: HOST, username: USER, port: PORT, readyTimeout: 10000 });
-const hostKeyFingerprint = process.env.SSH_HOST_KEY_SHA256;
-if (!hostKeyFingerprint) throw new Error('SSH_HOST_KEY_SHA256 is required (SHA-256 host key digest in hex)');
-const hostVerifier = createHostKeyVerifier(hostKeyFingerprint);
+if (!process.env.SSH_MCP_TARGETS) validateConfig(argvConfig);
+const targets = parseTargets(process.env.SSH_MCP_TARGETS, !process.env.SSH_MCP_TARGETS ? {
+  host: HOST, port: PORT, user: USER, password: PASSWORD, key: KEY,
+  hostKeySha256: process.env.SSH_HOST_KEY_SHA256 ?? '',
+} : undefined);
 const transferOptions = {
   maxBytes: parseBoundedInteger(process.env.SSH_MCP_MAX_TRANSFER_BYTES, DEFAULT_MAX_TRANSFER_BYTES, 1024, 1024 * 1024 * 1024, 'SSH_MCP_MAX_TRANSFER_BYTES'),
   timeoutMs: parseBoundedInteger(process.env.SSH_MCP_TRANSFER_TIMEOUT_MS, DEFAULT_TRANSFER_TIMEOUT_MS, 1000, 600000, 'SSH_MCP_TRANSFER_TIMEOUT_MS'),
@@ -72,25 +72,13 @@ server.tool(
   "sftp_upload", // 工具名称
   "Upload a file to remote server via SFTP", // 工具描述
   { // 工具参数
+    target: z.string().optional().describe("Named SSH target"),
     localPath: z.string().describe("Local file path to upload"),
     remotePath: z.string().describe("Remote path to save the file"),
   },
-  async ({ localPath, remotePath }) => { // 工具实现
+  async ({ target, localPath, remotePath }) => { // 工具实现
     try {
-      const fs = await import('fs/promises');
-      const sshConfig: any = {
-        host: HOST,
-        port: PORT,
-        username: USER,
-        readyTimeout: 10000,
-        hostHash: 'sha256',
-        hostVerifier,
-      };
-      if (PASSWORD) {
-        sshConfig.password = PASSWORD;
-      } else if (KEY) {
-        sshConfig.privateKey = await fs.readFile(KEY, 'utf8');
-      }
+      const sshConfig = await sshConfigForTarget(selectTarget(targets, target));
       await execSftpCommand(sshConfig, 'upload', localPath, remotePath);
       return {
         content: [{ // 返回结果
@@ -110,27 +98,14 @@ server.tool(
   "sftp_download",
   "Download a file from remote server via SFTP",
   {
+    target: z.string().optional().describe("Named SSH target"),
     remotePath: z.string().describe("Remote file path to download"),
     localPath: z.string().describe("Local path to save the file"),
   },
-  async ({ remotePath, localPath }) => {
+  async ({ target, remotePath, localPath }) => {
     try {
       const fs = await import('fs/promises');
-  // 重新构建 sshConfig 对象以解决找不到名称的问题
-  const sshConfig: any = {
-    host: HOST,
-    port: PORT,
-    username: USER,
-    readyTimeout: 10000,
-        hostHash: 'sha256',
-        hostVerifier,
-  };
-  if (PASSWORD) {
-    sshConfig.password = PASSWORD;
-  } else if (KEY) {
-    const fs = await import('fs/promises');
-    sshConfig.privateKey = await fs.readFile(KEY, 'utf8');
-  }
+  const sshConfig = await sshConfigForTarget(selectTarget(targets, target));
   await execSftpCommand(sshConfig, 'download', remotePath, localPath);
       return { content: [{ type: 'text', text: `File downloaded to ${localPath}` }] };
     } catch (err: any) {
@@ -145,24 +120,12 @@ server.tool(
   "sftp_list",
   "List files in a remote directory via SFTP",
   {
+    target: z.string().optional().describe("Named SSH target"),
     remotePath: z.string().describe("Remote directory path to list"),
   },
-  async ({ remotePath }) => {
+  async ({ target, remotePath }) => {
     try {
-      const sshConfig: any = {
-        host: HOST,
-        port: PORT,
-        username: USER,
-        readyTimeout: 10000,
-        hostHash: 'sha256',
-        hostVerifier,
-      };
-      if (PASSWORD) {
-        sshConfig.password = PASSWORD;
-      } else if (KEY) {
-        const fs = await import('fs/promises');
-        sshConfig.privateKey = await fs.readFile(KEY, 'utf8');
-      }
+      const sshConfig = await sshConfigForTarget(selectTarget(targets, target));
       const list = await execSftpCommand(sshConfig, 'list', remotePath) as { filename: string, longname: string }[];
       return {
         content: [{
@@ -238,28 +201,16 @@ server.tool(
   "exec",
   "Execute a shell command on the remote SSH server and return the output.",
   {
+    target: z.string().optional().describe("Named SSH target"),
     command: z.string().describe("Shell command to execute on the remote SSH server"),
   },
-  async ({ command }) => {
+  async ({ target, command }) => {
     // Sanitize command input
     if (typeof command !== 'string' || !command.trim()) {
       throw new McpError(ErrorCode.InternalError, 'Command must be a non-empty string.');
     }
-    const sshConfig: any = {
-      host: HOST,
-      port: PORT,
-      username: USER,
-    readyTimeout: 10000,
-        hostHash: 'sha256',
-        hostVerifier,
-    };
     try {
-      if (PASSWORD) {
-        sshConfig.password = PASSWORD;
-      } else if (KEY) {
-        const fs = await import('fs/promises');
-        sshConfig.privateKey = await fs.readFile(KEY, 'utf8');
-      }
+      const sshConfig = await sshConfigForTarget(selectTarget(targets, target));
       const result = await execSshCommand(sshConfig, command);
       return result;
     } catch (err: any) {
