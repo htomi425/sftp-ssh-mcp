@@ -202,12 +202,7 @@ async function execSftpCommand(sshConfig: any, action: string, ...args: any[]) {
                 conn.end();
                 return;
               }
-              resolve({
-                content: [{
-                  type: 'text',
-                  text: list.map(item => `${item.filename} (${item.longname})`).join('\n'),
-                }],
-              });
+              resolve(list);
               conn.end();
             });
             break;
