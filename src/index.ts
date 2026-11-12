@@ -6,6 +6,7 @@ import { Client as SSHClient } from 'ssh2';
 import { z } from 'zod';
 import { formatCommandResult } from './ssh/command-result.js';
 import { formatDirectoryListing } from './ssh/directory-listing.js';
+import { validateConnectionOptions } from './ssh/connection-config.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 // 解析命令行参数
@@ -23,7 +24,7 @@ function parseArgv() {
 const argvConfig = parseArgv();
 
 const HOST = argvConfig.host;
-const PORT = argvConfig.port ? parseInt(argvConfig.port) : 22;
+const PORT = argvConfig.port === undefined ? 22 : Number(argvConfig.port);
 const USER = argvConfig.user;
 const PASSWORD = argvConfig.password;
 const KEY = argvConfig.key;
@@ -33,13 +34,14 @@ function validateConfig(config: Record<string, string>) {
   const errors = [];
   if (!config.host) errors.push('Missing required --host');
   if (!config.user) errors.push('Missing required --user');
-  if (config.port && isNaN(Number(config.port))) errors.push('Invalid --port');
+  if (config.port !== undefined && (!Number.isInteger(Number(config.port)) || Number(config.port) < 1 || Number(config.port) > 65535)) errors.push('Invalid --port (1-65535)');
   if (errors.length > 0) {
     throw new Error('Configuration error:\n' + errors.join('\n'));
   }
 }
 
 validateConfig(argvConfig);
+validateConnectionOptions({ host: HOST, username: USER, port: PORT, readyTimeout: 10000 });
 
 // MCP 服务器实例化
 const server = new McpServer({
@@ -67,6 +69,7 @@ server.tool(
         host: HOST,
         port: PORT,
         username: USER,
+        readyTimeout: 10000,
       };
       if (PASSWORD) {
         sshConfig.password = PASSWORD;
@@ -103,6 +106,7 @@ server.tool(
     host: HOST,
     port: PORT,
     username: USER,
+    readyTimeout: 10000,
   };
   if (PASSWORD) {
     sshConfig.password = PASSWORD;
@@ -138,6 +142,7 @@ server.tool(
         host: HOST,
         port: PORT,
         username: USER,
+        readyTimeout: 10000,
       };
       if (PASSWORD) {
         sshConfig.password = PASSWORD;
@@ -237,6 +242,7 @@ server.tool(
       host: HOST,
       port: PORT,
       username: USER,
+    readyTimeout: 10000,
     };
     try {
       if (PASSWORD) {
