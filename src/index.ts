@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { formatCommandResult } from './ssh/command-result.js';
 import { formatDirectoryListing } from './ssh/directory-listing.js';
 import { validateConnectionOptions } from './ssh/connection-config.js';
+import { createHostKeyVerifier } from './ssh/host-key.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 // 解析命令行参数
@@ -42,6 +43,9 @@ function validateConfig(config: Record<string, string>) {
 
 validateConfig(argvConfig);
 validateConnectionOptions({ host: HOST, username: USER, port: PORT, readyTimeout: 10000 });
+const hostKeyFingerprint = process.env.SSH_HOST_KEY_SHA256;
+if (!hostKeyFingerprint) throw new Error('SSH_HOST_KEY_SHA256 is required (SHA-256 host key digest in hex)');
+const hostVerifier = createHostKeyVerifier(hostKeyFingerprint);
 
 // MCP 服务器实例化
 const server = new McpServer({
@@ -70,6 +74,8 @@ server.tool(
         port: PORT,
         username: USER,
         readyTimeout: 10000,
+        hostHash: 'sha256',
+        hostVerifier,
       };
       if (PASSWORD) {
         sshConfig.password = PASSWORD;
@@ -107,6 +113,8 @@ server.tool(
     port: PORT,
     username: USER,
     readyTimeout: 10000,
+        hostHash: 'sha256',
+        hostVerifier,
   };
   if (PASSWORD) {
     sshConfig.password = PASSWORD;
@@ -143,6 +151,8 @@ server.tool(
         port: PORT,
         username: USER,
         readyTimeout: 10000,
+        hostHash: 'sha256',
+        hostVerifier,
       };
       if (PASSWORD) {
         sshConfig.password = PASSWORD;
@@ -243,6 +253,8 @@ server.tool(
       port: PORT,
       username: USER,
     readyTimeout: 10000,
+        hostHash: 'sha256',
+        hostVerifier,
     };
     try {
       if (PASSWORD) {
