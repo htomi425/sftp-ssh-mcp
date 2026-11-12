@@ -11,6 +11,7 @@
   "scripts": {
     "prepare": "npm run build",
     "build": "tsc && shx chmod +x build/*.js",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "inspect": "npx @modelcontextprotocol/inspector node build/index.js"
   },
   "files": [
