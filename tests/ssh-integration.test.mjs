@@ -1,0 +1,74 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { Client } from 'ssh2';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHostKeyVerifier } from '../build/ssh/host-key.js';
+import { uploadFile, downloadFile } from '../build/ssh/sftp-transfer.js';
+
+const host = process.env.SSH_INTEGRATION_HOST;
+const port = Number(process.env.SSH_INTEGRATION_PORT || 0);
+const username = process.env.SSH_INTEGRATION_USER;
+const privateKeyPath = process.env.SSH_INTEGRATION_KEY;
+const hostKeyHex = process.env.SSH_INTEGRATION_HOST_KEY_HEX;
+const enabled = Boolean(host && port && username && privateKeyPath && hostKeyHex);
+
+function connect(privateKey, verifier) {
+  return new Promise((resolve, reject) => {
+    const client = new Client();
+    client.once('ready', () => resolve(client));
+    client.once('error', reject);
+    client.connect({
+      host, port, username, privateKey, readyTimeout: 5000,
+      hostHash: 'sha256', hostVerifier: verifier,
+    });
+  });
+}
+
+function openSftp(client) {
+  return new Promise((resolve, reject) => client.sftp((err, sftp) => err ? reject(err) : resolve(sftp)));
+}
+
+function exec(client, command) {
+  return new Promise((resolve, reject) => client.exec(command, (error, stream) => {
+    if (error) return reject(error);
+    let stdout = '';
+    stream.on('data', chunk => { stdout += chunk.toString(); });
+    stream.on('close', code => code === 0 ? resolve(stdout) : reject(new Error('exit ' + code)));
+    stream.on('error', reject);
+  }));
+}
+
+test('real SSH: pinned host key, authentication, exec and SFTP round trip', { skip: !enabled }, async () => {
+  const privateKey = await readFile(privateKeyPath);
+  const verify = createHostKeyVerifier(hostKeyHex);
+  const client = await connect(privateKey, verify);
+  const dir = await mkdtemp(join(tmpdir(), 'ssh-mcp-integration-'));
+  try {
+    assert.match(await exec(client, 'printf integration-ok'), /integration-ok/);
+    const sftp = await openSftp(client);
+    const source = join(dir, 'source.txt');
+    const target = join(dir, 'target.txt');
+    const remote = '/tmp/ssh-mcp-' + process.pid + '-' + Date.now() + '.txt';
+    await writeFile(source, 'integration SFTP content');
+    try {
+      await uploadFile(sftp, source, remote);
+      await downloadFile(sftp, remote, target);
+      assert.equal(await readFile(target, 'utf8'), 'integration SFTP content');
+    } finally {
+      await new Promise(resolve => sftp.unlink(remote, () => resolve()));
+    }
+  } finally {
+    client.end();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('real SSH: incorrect host key is rejected', { skip: !enabled }, async () => {
+  const privateKey = await readFile(privateKeyPath);
+  const incorrect = hostKeyHex.replace(/^./, hostKeyHex[0] === 'a' ? 'b' : 'a');
+  await assert.rejects(() => connect(privateKey, createHostKeyVerifier(incorrect)));
+});
