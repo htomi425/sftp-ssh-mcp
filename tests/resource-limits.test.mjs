@@ -19,3 +19,18 @@ test('connection gate enforces concurrency and releases once', () => {
   assert.equal(gate.activeCount, 0);
   gate.acquire()();
 });
+
+test('connection gate rejects excess parallel operations and recovers all slots', async () => {
+  const gate = new ConnectionGate(2);
+  const first = gate.acquire();
+  const second = gate.acquire();
+  assert.equal(gate.activeCount, 2);
+  for (let i = 0; i < 10; i++) assert.throws(() => gate.acquire(), /limit/);
+  first();
+  const third = gate.acquire();
+  assert.equal(gate.activeCount, 2);
+  second();
+  third();
+  assert.equal(gate.activeCount, 0);
+  assert.equal(typeof gate.acquire(), 'function');
+});
