@@ -12,13 +12,19 @@ test('upload streams a local file to SFTP', async () => {
     const local = join(dir, 'source.txt');
     await writeFile(local, 'streamed upload');
     const chunks = [];
+    const renamed = [];
     const sftp = {
+      stat: (_path, cb) => cb(Object.assign(new Error('not found'), { code: 2 })),
+      rename: (from, to, cb) => { renamed.push([from, to]); cb(null); },
+      unlink: (_path, cb) => cb(null),
       createWriteStream: () => new Writable({
         write(chunk, encoding, callback) { chunks.push(Buffer.from(chunk)); callback(); },
       }),
     };
     await uploadFile(sftp, local, '/remote.txt');
     assert.equal(Buffer.concat(chunks).toString(), 'streamed upload');
+    assert.equal(renamed.length, 1);
+    assert.equal(renamed[0][1], '/remote.txt');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -42,8 +48,15 @@ test('upload rejects data exceeding transfer size limit', async () => {
   try {
     const local = join(dir, 'source.txt');
     await writeFile(local, 'too many bytes');
-    const sftp = { createWriteStream: () => new Writable({ write(_chunk, _enc, callback) { callback(); } }) };
+    let cleaned = false;
+    const sftp = {
+      stat: (_path, cb) => cb(Object.assign(new Error('not found'), { code: 2 })),
+      unlink: (_path, cb) => { cleaned = true; cb(null); },
+      rename: (_from, _to, cb) => cb(null),
+      createWriteStream: () => new Writable({ write(_chunk, _enc, callback) { callback(); } }),
+    };
     await assert.rejects(() => uploadFile(sftp, local, '/remote.txt', { maxBytes: 4 }), /size limit/);
+    assert.equal(cleaned, true);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
