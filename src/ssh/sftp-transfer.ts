@@ -37,8 +37,38 @@ async function boundedPipeline(source: NodeJS.ReadableStream, destination: NodeJ
   }
 }
 
+function sftpRename(sftp: SFTPWrapper, from: string, to: string): Promise<void> {
+  return new Promise((resolve, reject) => sftp.rename(from, to, (error) => error ? reject(error) : resolve()));
+}
+
+function sftpUnlink(sftp: SFTPWrapper, path: string): Promise<void> {
+  return new Promise((resolve, reject) => sftp.unlink(path, (error) => error ? reject(error) : resolve()));
+}
+
+function sftpStat(sftp: SFTPWrapper, path: string): Promise<boolean> {
+  return new Promise((resolve, reject) => sftp.stat(path, (error) => {
+    if (!error) return resolve(true);
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as { code?: number }).code === 2) return resolve(false);
+    reject(error);
+  }));
+}
+
 export async function uploadFile(sftp: SFTPWrapper, localPath: string, remotePath: string, options: TransferOptions = {}): Promise<void> {
-  await boundedPipeline(createReadStream(localPath), sftp.createWriteStream(remotePath, { flags: 'wx' }), options);
+  // Upload to a sibling path first, so a failed transfer never leaves a partial final file.
+  const tempPath = `${remotePath}.ssh-mcp-${randomUUID()}.part`;
+  let created = false;
+  try {
+    if (await sftpStat(sftp, remotePath)) throw new Error('Remote destination already exists');
+    created = true;
+    await boundedPipeline(createReadStream(localPath), sftp.createWriteStream(tempPath, { flags: 'wx' }), options);
+    // Standard SFTP rename may replace a file created concurrently. Enforce exclusive
+    // publishing with a server-specific extension before enabling untrusted writers.
+    if (await sftpStat(sftp, remotePath)) throw new Error('Remote destination already exists');
+    await sftpRename(sftp, tempPath, remotePath);
+    created = false;
+  } finally {
+    if (created) await sftpUnlink(sftp, tempPath).catch(() => undefined);
+  }
 }
 
 export async function downloadFile(sftp: SFTPWrapper, remotePath: string, localPath: string, options: TransferOptions = {}): Promise<void> {
