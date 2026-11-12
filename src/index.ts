@@ -4,6 +4,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { McpError, ErrorCode, CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { Client as SSHClient } from 'ssh2';
 import { z } from 'zod';
+import { formatCommandResult } from './ssh/command-result.js';
+import { formatDirectoryListing } from './ssh/directory-listing.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 // 解析命令行参数
@@ -147,7 +149,7 @@ server.tool(
       return {
         content: [{
           type: 'text',
-          text: list.map(item => `${item.filename} (${item.longname})`).join('\n')
+          text: formatDirectoryListing(list)
         }]
       };
     } catch (err: any) {
@@ -267,15 +269,15 @@ async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: st
         let stderr = '';
         stream.on('close', (code: number, signal: string) => {
           conn.end();
-          if (code !== 0) {
-            reject(new McpError(ErrorCode.InternalError, `Command failed (exit ${code}, signal ${signal ?? 'none'}):\n${stderr || stdout}`));
-          } else {
+          try {
             resolve({
               content: [{
                 type: 'text',
-                text: stdout + (stderr ? `\n[stderr]\n${stderr}` : ''),
+                text: formatCommandResult({ stdout, stderr, exitCode: code, signal }),
               }],
             });
+          } catch (error) {
+            reject(new McpError(ErrorCode.InternalError, error instanceof Error ? error.message : String(error)));
           }
         });
         stream.on('data', (data: Buffer) => {
