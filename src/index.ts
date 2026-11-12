@@ -8,6 +8,7 @@ import { formatCommandResult } from './ssh/command-result.js';
 import { formatDirectoryListing } from './ssh/directory-listing.js';
 import { validateConnectionOptions } from './ssh/connection-config.js';
 import { createHostKeyVerifier } from './ssh/host-key.js';
+import { DEFAULT_EXEC_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, OutputLimiter } from './ssh/exec-limits.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 // 解析命令行参数
@@ -276,40 +277,69 @@ server.tool(
 async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: string]: unknown; content: ({ [x: string]: unknown; type: "text"; text: string; } | { [x: string]: unknown; type: "image"; data: string; mimeType: string; } | { [x: string]: unknown; type: "audio"; data: string; mimeType: string; } | { [x: string]: unknown; type: "resource"; resource: any; })[] }> {
   return new Promise((resolve, reject) => {
     const conn = new SSHClient();
+    const output = new OutputLimiter(DEFAULT_MAX_OUTPUT_BYTES);
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      finish(new Error('SSH command timed out'));
+    }, DEFAULT_EXEC_TIMEOUT_MS);
+
+    function finish(error?: Error, result?: string) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      conn.end();
+      if (error) {
+        reject(new McpError(ErrorCode.InternalError, error.message));
+      } else {
+        resolve({ content: [{ type: 'text', text: result ?? '' }] });
+      }
+    }
+
     conn.on('ready', () => {
       conn.exec(command, (err, stream) => {
         if (err) {
-          reject(new McpError(ErrorCode.InternalError, `SSH exec error: ${err.message}`));
-          conn.end();
+          finish(err);
           return;
         }
-        let stdout = '';
-        let stderr = '';
-        stream.on('close', (code: number, signal: string) => {
-          conn.end();
+        stream.on('data', (chunk: Buffer) => {
+          if (settled) return;
           try {
-            resolve({
-              content: [{
-                type: 'text',
-                text: formatCommandResult({ stdout, stderr, exitCode: code, signal }),
-              }],
-            });
+            output.add(chunk);
+            stdout += chunk.toString();
           } catch (error) {
-            reject(new McpError(ErrorCode.InternalError, error instanceof Error ? error.message : String(error)));
+            stream.close();
+            finish(error instanceof Error ? error : new Error(String(error)));
           }
         });
-        stream.on('data', (data: Buffer) => {
-          stdout += data.toString();
+        stream.stderr.on('data', (chunk: Buffer) => {
+          if (settled) return;
+          try {
+            output.add(chunk);
+            stderr += chunk.toString();
+          } catch (error) {
+            stream.close();
+            finish(error instanceof Error ? error : new Error(String(error)));
+          }
         });
-        stream.stderr.on('data', (data: Buffer) => {
-          stderr += data.toString();
+        stream.on('error', (error: Error) => finish(error));
+        stream.on('close', (code: number | null, signal: string | null) => {
+          if (settled) return;
+          try {
+            finish(undefined, formatCommandResult({ stdout, stderr, exitCode: code, signal }));
+          } catch (error) {
+            finish(error instanceof Error ? error : new Error(String(error)));
+          }
         });
       });
     });
-    conn.on('error', (err) => {
-      reject(new McpError(ErrorCode.InternalError, `SSH connection error: ${err.message}`));
-    });
-    conn.connect(sshConfig);
+    conn.on('error', (error) => finish(error));
+    try {
+      conn.connect(sshConfig);
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(String(error)));
+    }
   });
 }
 
