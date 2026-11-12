@@ -76,7 +76,7 @@ jobs:
             'PasswordAuthentication no' \
             'PubkeyAuthentication yes' \
             'PermitRootLogin no' \
-            'UsePAM no' \
+            'UsePAM yes' \
             'StrictModes no' \
             'Subsystem sftp internal-sftp' \
             'PidFile /tmp/ssh-mcp-test-sshd.pid' \
@@ -96,4 +96,4 @@ jobs:
         run: node --test tests/ssh-integration.test.mjs
       - name: Show sshd logs on failure
         if: failure()
-        run: cat "$RUNNER_TEMP/ssh-integration/sshd.log" || true
+        run: sudo cat "$RUNNER_TEMP/ssh-integration/sshd.log" || true
