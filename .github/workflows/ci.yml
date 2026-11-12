@@ -40,3 +40,60 @@ jobs:
           name: npm-audit-node-${{ matrix.node-version }}
           path: audit.json
           if-no-files-found: ignore
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Compile TypeScript
+        run: npm run build
+      - name: Install OpenSSH server
+        run: sudo apt-get update && sudo apt-get install -y openssh-server
+      - name: Configure isolated SSH test server
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ssh-integration"
+          ssh-keygen -q -t ed25519 -N '' -f "$RUNNER_TEMP/ssh-integration/client"
+          ssh-keygen -q -t ed25519 -N '' -f "$RUNNER_TEMP/ssh-integration/host"
+          chmod 700 "$RUNNER_TEMP/ssh-integration"
+          cp "$RUNNER_TEMP/ssh-integration/client.pub" "$RUNNER_TEMP/ssh-integration/authorized_keys"
+          chmod 600 "$RUNNER_TEMP/ssh-integration/authorized_keys"
+          printf '%s\n' \
+            'Port 22222' \
+            'ListenAddress 127.0.0.1' \
+            "HostKey $RUNNER_TEMP/ssh-integration/host" \
+            "AuthorizedKeysFile $RUNNER_TEMP/ssh-integration/authorized_keys" \
+            'PasswordAuthentication no' \
+            'PubkeyAuthentication yes' \
+            'PermitRootLogin no' \
+            'UsePAM no' \
+            'StrictModes no' \
+            'Subsystem sftp internal-sftp' \
+            'PidFile /tmp/ssh-mcp-test-sshd.pid' \
+            > "$RUNNER_TEMP/ssh-integration/sshd_config"
+          sudo mkdir -p /run/sshd
+          sudo /usr/sbin/sshd -f "$RUNNER_TEMP/ssh-integration/sshd_config" -E "$RUNNER_TEMP/ssh-integration/sshd.log"
+          fingerprint="$(ssh-keygen -lf "$RUNNER_TEMP/ssh-integration/host.pub" -E sha256 | awk '{print $2}')"
+          hex="$(node -e "console.log(Buffer.from(process.argv[1].replace(/^SHA256:/,''),'base64').toString('hex'))" "$fingerprint")"
+          {
+            echo 'SSH_INTEGRATION_HOST=127.0.0.1'
+            echo 'SSH_INTEGRATION_PORT=22222'
+            echo "SSH_INTEGRATION_USER=$(whoami)"
+            echo "SSH_INTEGRATION_KEY=$RUNNER_TEMP/ssh-integration/client"
+            echo "SSH_INTEGRATION_HOST_KEY_HEX=$hex"
+          } >> "$GITHUB_ENV"
+      - name: Run SSH/SFTP integration tests
+        run: node --test tests/ssh-integration.test.mjs
+      - name: Show sshd logs on failure
+        if: failure()
+        run: cat "$RUNNER_TEMP/ssh-integration/sshd.log" || true
