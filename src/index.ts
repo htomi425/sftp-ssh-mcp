@@ -267,13 +267,13 @@ async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: st
         let stderr = '';
         stream.on('close', (code: number, signal: string) => {
           conn.end();
-          if (stderr) {
-            reject(new McpError(ErrorCode.InternalError, `Error (code ${code}):\n${stderr}`));
+          if (code !== 0) {
+            reject(new McpError(ErrorCode.InternalError, `Command failed (exit ${code}, signal ${signal ?? 'none'}):\n${stderr || stdout}`));
           } else {
             resolve({
               content: [{
                 type: 'text',
-                text: stdout,
+                text: stdout + (stderr ? `\n[stderr]\n${stderr}` : ''),
               }],
             });
           }
