@@ -53,14 +53,6 @@ export function createAuthenticatedHttpServer(policy: HttpAccessPolicy, handler:
     }
     let release: () => void;
     try { release = gate.acquire(); } catch { response.writeHead(503).end(); return; }
-    let received = 0;
-    request.on('data', (chunk: Buffer) => {
-      received += chunk.length;
-      if (received > limits.maxBodyBytes) {
-        if (!response.headersSent) response.writeHead(413).end();
-        request.destroy();
-      }
-    });
     try {
       await handler({ principal, request, response });
     } catch {
