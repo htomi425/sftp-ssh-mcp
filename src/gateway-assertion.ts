@@ -58,7 +58,7 @@ export function createGatewayAssertionVerifier(settings: GatewayAssertionSetting
         throw new Error('Invalid gateway assertion signature');
       }
       const claims = object(decodePart(parts[1]));
-      if (Object.keys(claims).some(k => !['iss', 'sub', 'aud', 'iat', 'nbf', 'exp', 'jti'].includes(k))) throw new Error('Unsupported gateway assertion claim');
+      if (Object.keys(claims).some(k => !['iss', 'sub', 'aud', 'iat', 'nbf', 'exp', 'jti', 'htm', 'htu', 'body_sha256'].includes(k))) throw new Error('Unsupported gateway assertion claim');
       if (claims.iss !== settings.issuer || claims.aud !== settings.audience ||
           typeof claims.sub !== 'string' || !claims.sub || claims.sub.length > 512 ||
           typeof claims.jti !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(claims.jti)) {
