@@ -21,6 +21,8 @@ test('HTTP boundary rejects unauthenticated requests and isolates principal', as
     assert.equal(missing.headers.get('www-authenticate'), 'Bearer');
     const invalid = await fetch(url, { method: 'POST', headers: { authorization: 'Bearer ' + 'b'.repeat(48) } });
     assert.equal(invalid.status, 401);
+    const crossOrigin = await fetch(url, { method: 'POST', headers: { authorization: 'Bearer ' + token, origin: 'https://untrusted.example' } });
+    assert.equal(crossOrigin.status, 403);
     const good = await fetch(url, { method: 'POST', headers: { authorization: 'Bearer ' + token } });
     assert.equal(good.status, 200);
     assert.deepEqual(await good.json(), { ok: true });
