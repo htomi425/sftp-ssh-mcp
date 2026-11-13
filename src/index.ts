@@ -4,6 +4,9 @@ import { createToolServer } from './tool-server.js';
 import { parseTargets } from './ssh/targets.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { parseTransportSettings } from './transport-settings.js';
+import { parseHttpAccessPolicy } from './http-access.js';
+import { createAuthenticatedHttpServer, listenLoopback } from './http-server.js';
+import { createStreamableHttpHandler } from './http-mcp.js';
 
 // 解析命令行参数
 function parseArgv() {
@@ -41,14 +44,21 @@ const targets = parseTargets(process.env.SSH_MCP_TARGETS, !process.env.SSH_MCP_T
   host: HOST, port: PORT, user: USER, password: PASSWORD, key: KEY,
   hostKeySha256: process.env.SSH_HOST_KEY_SHA256 ?? '',
 } : undefined);
-const server = createToolServer(targets, {}, 'stdio');
 
 // 启动 MCP 服务器
 async function main() {
   const transportSettings = parseTransportSettings(process.env);
-  if (transportSettings.mode !== 'stdio') {
-    throw new Error('HTTP transport is not enabled yet; refusing to start an unauthenticated listener');
+  if (transportSettings.mode === 'http') {
+    // Explicit opt-in only. This static-token mode is NOT an OAuth implementation.
+    // Loopback-only; use a trusted reverse proxy with TLS and strict access controls.
+    const policy = parseHttpAccessPolicy(process.env.SSH_MCP_HTTP_CREDENTIALS, new Set(Object.keys(targets)));
+    const handler = createStreamableHttpHandler(principal => createToolServer(targets, { principal }, 'http'));
+    const http = createAuthenticatedHttpServer(policy, handler);
+    const address = await listenLoopback(http, transportSettings.host, transportSettings.port);
+    console.error(`SSH MCP Streamable HTTP listening on ${address.address}:${address.port} (static bearer, not OAuth)`);
+    return;
   }
+  const server = createToolServer(targets, {}, 'stdio');
   // 比较简单的启动方式，直接连接到 stdio
   const transport = new StdioServerTransport();
   // 监听 stdio 输入，处理 MCP 请求
