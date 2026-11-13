@@ -7,7 +7,8 @@ import { z } from 'zod';
 import { formatCommandResult } from './ssh/command-result.js';
 import { formatDirectoryListing } from './ssh/directory-listing.js';
 import { validateConnectionOptions } from './ssh/connection-config.js';
-import { parseTargets, selectTarget, sshConfigForTarget } from './ssh/targets.js';
+import { parseTargets, sshConfigForTarget } from './ssh/targets.js';
+import { resolveToolTarget } from './tool-target.js';
 import { DEFAULT_EXEC_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, OutputLimiter } from './ssh/exec-limits.js';
 import { uploadFile, downloadFile } from './ssh/sftp-transfer.js';
 import { ConnectionGate, parseBoundedInteger, DEFAULT_MAX_TRANSFER_BYTES, DEFAULT_TRANSFER_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_CONNECTIONS } from './ssh/resource-limits.js';
@@ -75,7 +76,7 @@ server.tool(
   },
   async ({ target, localPath, remotePath }) => { // 工具实现
     try {
-      const sshConfig = await sshConfigForTarget(selectTarget(targets, target));
+      const sshConfig = await sshConfigForTarget(resolveToolTarget(targets, target, {}, 'stdio'));
       await execSftpCommand(sshConfig, 'upload', localPath, remotePath);
       return {
         content: [{ // 返回结果
@@ -102,7 +103,7 @@ server.tool(
   async ({ target, remotePath, localPath }) => {
     try {
       const fs = await import('fs/promises');
-  const sshConfig = await sshConfigForTarget(selectTarget(targets, target));
+  const sshConfig = await sshConfigForTarget(resolveToolTarget(targets, target, {}, 'stdio'));
   await execSftpCommand(sshConfig, 'download', remotePath, localPath);
       return { content: [{ type: 'text', text: `File downloaded to ${localPath}` }] };
     } catch (err: any) {
@@ -122,7 +123,7 @@ server.tool(
   },
   async ({ target, remotePath }) => {
     try {
-      const sshConfig = await sshConfigForTarget(selectTarget(targets, target));
+      const sshConfig = await sshConfigForTarget(resolveToolTarget(targets, target, {}, 'stdio'));
       const list = await execSftpCommand(sshConfig, 'list', remotePath) as { filename: string, longname: string }[];
       return {
         content: [{
@@ -207,7 +208,7 @@ server.tool(
       throw new McpError(ErrorCode.InternalError, 'Command must be a non-empty string.');
     }
     try {
-      const sshConfig = await sshConfigForTarget(selectTarget(targets, target));
+      const sshConfig = await sshConfigForTarget(resolveToolTarget(targets, target, {}, 'stdio'));
       const result = await execSshCommand(sshConfig, command);
       return result;
     } catch (err: any) {
