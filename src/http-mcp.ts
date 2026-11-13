@@ -18,13 +18,14 @@ export type HttpMcpServerFactory = (principal: HttpPrincipal) => HttpMcpServer;
  */
 export function createStreamableHttpHandler(factory: HttpMcpServerFactory) {
   const { maxBodyBytes } = parseHttpRequestLimits(process.env);
-  return async ({ principal, request, response }: {
+  return async ({ principal, request, response, parsedBody: preauthenticatedBody }: {
     principal: HttpPrincipal;
     request: IncomingMessage;
     response: ServerResponse;
+    parsedBody?: unknown;
   }): Promise<void> => {
-    let parsedBody: unknown;
-    if (request.method === 'POST') {
+    let parsedBody: unknown = preauthenticatedBody;
+    if (request.method === 'POST' && preauthenticatedBody === undefined) {
       try {
         parsedBody = await readBoundedJsonBody(request, maxBodyBytes);
       } catch (error) {
