@@ -23,6 +23,17 @@ export function createAuthenticatedHttpServer(policy: HttpAccessPolicy, handler:
       response.writeHead(404).end();
       return;
     }
+    // Browser origins are never trusted implicitly; cross-origin requests are denied.
+    if (request.headers.origin !== undefined) {
+      response.writeHead(403).end();
+      return;
+    }
+    // Refuse ambiguous credentials before inspecting the bearer token.
+    if (request.headersDistinct.authorization?.length !== 1) {
+      response.setHeader('WWW-Authenticate', 'Bearer');
+      response.writeHead(401).end();
+      return;
+    }
     let principal: HttpPrincipal;
     try {
       const authorization = request.headers.authorization;
