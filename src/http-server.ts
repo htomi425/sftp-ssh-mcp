@@ -56,7 +56,10 @@ export function createAuthenticatedHttpServer(policy: HttpAccessPolicy, handler:
     let received = 0;
     request.on('data', (chunk: Buffer) => {
       received += chunk.length;
-      if (received > limits.maxBodyBytes) request.destroy(new Error('HTTP request body exceeds configured limit'));
+      if (received > limits.maxBodyBytes) {
+        if (!response.headersSent) response.writeHead(413).end();
+        request.destroy();
+      }
     });
     try {
       await handler({ principal, request, response });
