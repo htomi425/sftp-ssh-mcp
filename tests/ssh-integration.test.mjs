@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHostKeyVerifier } from '../build/ssh/host-key.js';
 import { uploadFile, downloadFile } from '../build/ssh/sftp-transfer.js';
+import { parseTargets, selectTarget, sshConfigForTarget } from '../build/ssh/targets.js';
 
 const host = process.env.SSH_INTEGRATION_HOST;
 const port = Number(process.env.SSH_INTEGRATION_PORT || 0);
@@ -125,4 +126,32 @@ test('real SSH: authentication rejects an untrusted private key', { skip: !enabl
     () => connect(unrelatedKey, createHostKeyVerifier(hostKeyHex)),
     /authentication methods failed|authentication/i,
   );
+});
+
+
+test('real SSH: named targets select independent credentials and enforce host-key pins', { skip: !enabled }, async () => {
+  const valid = { host, port, user: username, key: privateKeyPath, hostKeySha256: hostKeyHex };
+  const invalid = { ...valid, hostKeySha256: hostKeyHex.replace(/^./, hostKeyHex[0] === 'a' ? 'b' : 'a') };
+  const registry = parseTargets(JSON.stringify({ trusted: valid, rejected: invalid }), undefined);
+  assert.throws(() => selectTarget(registry), /ambiguous/);
+  assert.throws(() => selectTarget(registry, 'unknown'), /Unknown/);
+  const trustedConfig = await sshConfigForTarget(selectTarget(registry, 'trusted'));
+  const client = new Client();
+  try {
+    await new Promise((resolve, reject) => {
+      client.once('ready', resolve);
+      client.once('error', reject);
+      client.connect(trustedConfig);
+    });
+    assert.match(await exec(client, 'printf named-target-ok'), /named-target-ok/);
+  } finally {
+    client.end();
+  }
+  const rejectedConfig = await sshConfigForTarget(selectTarget(registry, 'rejected'));
+  await assert.rejects(() => new Promise((resolve, reject) => {
+    const denied = new Client();
+    denied.once('ready', () => { denied.end(); resolve(); });
+    denied.once('error', error => { denied.end(); reject(error); });
+    denied.connect(rejectedConfig);
+  }));
 });
