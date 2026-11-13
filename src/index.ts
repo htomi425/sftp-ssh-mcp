@@ -12,6 +12,7 @@ import { DEFAULT_EXEC_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, OutputLimiter } from
 import { uploadFile, downloadFile } from './ssh/sftp-transfer.js';
 import { ConnectionGate, parseBoundedInteger, DEFAULT_MAX_TRANSFER_BYTES, DEFAULT_TRANSFER_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_CONNECTIONS } from './ssh/resource-limits.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { parseTransportSettings } from './transport-settings.js';
 
 // 解析命令行参数
 function parseArgv() {
@@ -292,6 +293,10 @@ async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: st
 
 // 启动 MCP 服务器
 async function main() {
+  const transportSettings = parseTransportSettings(process.env);
+  if (transportSettings.mode !== 'stdio') {
+    throw new Error('HTTP transport is not enabled yet; refusing to start an unauthenticated listener');
+  }
   // 比较简单的启动方式，直接连接到 stdio
   const transport = new StdioServerTransport();
   // 监听 stdio 输入，处理 MCP 请求
