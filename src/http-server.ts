@@ -73,7 +73,7 @@ export function createAuthenticatedHttpServer(policy: HttpAccessPolicy | Gateway
         }
         try {
           const authorization = request.headers.authorization;
-          const match = typeof authorization === 'string' ? /^Bearer ([A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+)$/.exec(authorization) : null;
+          const match = typeof authorization === 'string' ? /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.exec(authorization) : null;
           if (!match || match[1].length > 8192) throw new Error('Invalid gateway assertion bearer');
           principal = policy.verifyRequest(match[1], {
             method: request.method as 'POST' | 'GET' | 'DELETE', path: '/mcp', body: raw,
