@@ -44,7 +44,6 @@ export function parseIdentityTargetPolicy(raw: string | undefined, knownTargets:
       throw new Error('Identity mapping references unknown or empty targets');
     }
     if (new Set(item.targets).size !== item.targets.length) throw new Error('Duplicate identity target');
-    const identity = JSON.parse(key) as [string, string];
     mappings.set(key, { id: key, targets: new Set(item.targets as string[]) });
   }
   return {
