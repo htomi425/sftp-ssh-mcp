@@ -21,4 +21,6 @@ test('rejects malformed or insecure target configuration', () => {
   assert.throws(() => parseTargets(JSON.stringify({ bad: { ...first, hostKeySha256: '' } }), undefined));
   assert.throws(() => parseTargets(JSON.stringify({ bad: { ...first, password: 'secret' } }), undefined), /exactly one/);
   assert.throws(() => parseTargets(JSON.stringify({ 'invalid.name': first }), undefined), /name/);
+  assert.throws(() => parseTargets(JSON.stringify({ typo: { ...first, hostKeySha265: digest } }), undefined), /Unknown SSH target field: hostKeySha265/);
+  assert.throws(() => parseTargets(JSON.stringify({ typo: { ...first, passwrod: 'secret' } }), undefined), /Unknown SSH target field: passwrod/);
 });
