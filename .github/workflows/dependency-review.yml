@@ -20,6 +20,8 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - name: Install locked baseline dependencies
+        run: npm ci
       - name: Record baseline dependency tree and vulnerabilities
         shell: bash
         run: |
