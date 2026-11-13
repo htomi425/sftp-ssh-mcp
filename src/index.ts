@@ -7,6 +7,10 @@ import { parseTransportSettings } from './transport-settings.js';
 import { parseHttpAccessPolicy } from './http-access.js';
 import { createAuthenticatedHttpServer, listenLoopback } from './http-server.js';
 import { createStreamableHttpHandler } from './http-mcp.js';
+import { createGatewayAssertionVerifier } from './gateway-assertion.js';
+import { createInMemoryReplayCache } from './gateway-replay.js';
+import { parseIdentityTargetPolicy } from './identity-target-policy.js';
+import { createGatewayHttpAuthenticator } from './gateway-http-auth.js';
 
 // 解析命令行参数
 function parseArgv() {
@@ -51,11 +55,23 @@ async function main() {
   if (transportSettings.mode === 'http') {
     // Explicit opt-in only. This static-token mode is NOT an OAuth implementation.
     // Loopback-only; use a trusted reverse proxy with TLS and strict access controls.
-    const policy = parseHttpAccessPolicy(process.env.SSH_MCP_HTTP_CREDENTIALS, new Set(Object.keys(targets)));
+    const authMode = process.env.SSH_MCP_HTTP_AUTH_MODE ?? 'static';
+    if (!['static', 'gateway'].includes(authMode)) throw new Error('Invalid SSH_MCP_HTTP_AUTH_MODE');
+    const policy = authMode === 'gateway'
+      ? createGatewayHttpAuthenticator(
+          createGatewayAssertionVerifier({
+            issuer: process.env.SSH_MCP_GATEWAY_ISSUER ?? '',
+            audience: process.env.SSH_MCP_GATEWAY_AUDIENCE ?? '',
+            publicKeyPem: process.env.SSH_MCP_GATEWAY_PUBLIC_KEY_PEM ?? '',
+          }),
+          createInMemoryReplayCache(),
+          parseIdentityTargetPolicy(process.env.SSH_MCP_IDENTITY_TARGETS, new Set(Object.keys(targets))),
+        )
+      : parseHttpAccessPolicy(process.env.SSH_MCP_HTTP_CREDENTIALS, new Set(Object.keys(targets)));
     const handler = createStreamableHttpHandler(principal => createToolServer(targets, { principal }, 'http'));
     const http = createAuthenticatedHttpServer(policy, handler);
     const address = await listenLoopback(http, transportSettings.host, transportSettings.port);
-    console.error(`SSH MCP Streamable HTTP listening on ${address.address}:${address.port} (static bearer, not OAuth)`);
+    console.error(`SSH MCP Streamable HTTP listening on ${address.address}:${address.port} (auth: ${authMode}, not OAuth)`);
     return;
   }
   const server = createToolServer(targets, {}, 'stdio');
