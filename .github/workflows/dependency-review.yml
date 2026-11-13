@@ -1,0 +1,50 @@
+name: Dependency review (candidate only)
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    if: github.head_ref == 'refactor/core' || github.ref == 'refs/heads/refactor/core'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Record baseline dependency tree and vulnerabilities
+        shell: bash
+        run: |
+          npm ls --all --json > baseline-tree.json || true
+          npm audit --json > baseline-audit.json || true
+      - name: Resolve non-breaking updates into candidate lockfile
+        run: npm update --package-lock-only --ignore-scripts --no-audit
+      - name: Test candidate dependency resolution
+        run: |
+          npm ci
+          npm test
+      - name: Record candidate dependency tree and vulnerabilities
+        if: always()
+        shell: bash
+        run: |
+          npm ls --all --json > candidate-tree.json || true
+          npm audit --json > candidate-audit.json || true
+      - name: Upload candidate for manual review (no repository changes)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-review-candidate
+          path: |
+            package-lock.json
+            baseline-tree.json
+            baseline-audit.json
+            candidate-tree.json
+            candidate-audit.json
