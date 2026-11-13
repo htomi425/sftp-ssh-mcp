@@ -38,6 +38,10 @@ export function parseTargets(raw: string | undefined, legacy: Target | undefined
 function validateTarget(value: unknown): Target {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('SSH target must be an object');
   const target = value as Record<string, unknown>;
+  const allowed = new Set(['host', 'port', 'user', 'password', 'key', 'hostKeySha256']);
+  for (const field of Object.keys(target)) {
+    if (!allowed.has(field)) throw new Error('Unknown SSH target field: ' + field);
+  }
   if (typeof target.host !== 'string' || typeof target.user !== 'string') throw new Error('SSH target host and user are required');
   const port = target.port === undefined ? 22 : target.port;
   validateConnectionOptions({ host: target.host, username: target.user, port: port as number, readyTimeout: 10000 });
