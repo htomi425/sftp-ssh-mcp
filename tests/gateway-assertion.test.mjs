@@ -23,7 +23,10 @@ test('verifies signed gateway identity without assigning SSH permissions', () =>
 
 test('rejects invalid signature, unsupported header and malformed tokens', () => {
   const token = jwt(valid());
-  assert.throws(() => verifier.verify(token.slice(0, -2) + 'AA', now), /signature|encoding/);
+  const [header, payload, signature] = token.split('.');
+  const changedFirstChar = signature[0] === 'A' ? 'B' : 'A';
+  const tampered = [header, payload, changedFirstChar + signature.slice(1)].join('.');
+  assert.throws(() => verifier.verify(tampered, now), /signature|encoding/);
   assert.throws(() => verifier.verify(jwt(valid(), { alg: 'none', typ: 'JWT' }), now), /header/);
   assert.throws(() => verifier.verify(jwt(valid(), { alg: 'EdDSA', typ: 'JWT', kid: 'untrusted' }), now), /header/);
   assert.throws(() => verifier.verify('invalid', now), /format/);
