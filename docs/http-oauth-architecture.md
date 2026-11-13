@@ -11,7 +11,7 @@ Do not publish the HTTP listener or claim OAuth compatibility before implementin
 1. **MCP client ↔ Cloudflare Access:** Cloudflare Access authenticates the incoming client at the edge. Browser sessions, service tokens, and Access application JWTs have different semantics. A successful Access login is not, by itself, an OAuth access token accepted by this MCP server.
 2. **OAuth authorization server:** Choose an explicit OAuth authorization server compatible with MCP clients, supporting authorization-code + PKCE and discovery as needed. Define a stable protected-resource identifier and audience for the MCP endpoint.
 3. **Cloudflare Tunnel ↔ local HTTP:** Tunnel forwards only to the loopback listener. Preserve the existing Cloudflare configuration until the new application and policy are separately tested.
-4. **Token verification at MCP:** Validate signed access tokens using a trusted issuer's JWKS (or secure introspection for opaque tokens). Enforce issuer, audience, expiry, not-before, allowed algorithms, key rotation, and fail-closed behavior. Never trust arbitrary client-supplied identity headers. Never treat a Cloudflare Access JWT as an MCP OAuth access token without an explicit, validated trust contract.
+4. **Token verification at MCP:** Validate signed access tokens using a trusted issuer's JWKS (or secure introspection for opaque tokens). Enforce issuer, audience, expiry, not-before, allowed algorithms, key rotation, and fail-closed behavior. Never trust arbitrary client-supplied identity headers. Never treat a Cloudflare Access JWT as an MCP OAuth access token without an explicit, validated explicit token validation specification.
 5. **Authorization mapping:** Map the verified immutable subject (issuer + subject, or a verified service identity) to an explicit allowlist of SSH target names. Deny unknown identities and unknown targets. Never derive target permissions solely from token text or user-provided tool parameters.
 6. **MCP HTTP semantics:** Provide OAuth protected-resource metadata and correct `WWW-Authenticate` discovery/challenge responses. Test a real MCP client through the entire login, refresh, and tool-call lifecycle, including insufficient scope and expired-token cases.
 
@@ -29,7 +29,7 @@ Do not publish the HTTP listener or claim OAuth compatibility before implementin
 
 **OSS portability:** preserve stdio as the zero-Cloudflare option; document static bearer HTTP as limited and non-OAuth; provide a generic external OAuth verifier implementation and reverse-proxy deployment example. Cloudflare-specific code and Wrangler configuration belong in an optional `integrations/cloudflare/` package, not the core SSH tool module.
 
-**Implementation order:** (1) gateway assertion contract and fail-closed Node verifier; (2) issuer+subject to target policy; (3) split Workers OAuth with Service Binding and correct discovery; (4) end-to-end authenticated proxy tests, forged-header/replay/expired-token tests, client OAuth tests; (5) optional external issuer adapter and deployment examples. No deployment to CT 200 before explicit approval.
+**Implementation order:** (1) gateway assertion format and validation rules and fail-closed Node verifier; (2) issuer+subject to target policy; (3) split Workers OAuth with Service Binding and correct discovery; (4) end-to-end authenticated proxy tests, forged-header/replay/expired-token tests, client OAuth tests; (5) optional external issuer adapter and deployment examples. No deployment to CT 200 before explicit approval.
 
 ## Required security tests
 
