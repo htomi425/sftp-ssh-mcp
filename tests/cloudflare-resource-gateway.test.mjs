@@ -41,8 +41,8 @@ test('gateway signs the exact forwarded bytes and strips forged identity headers
   assert.equal(claims.sub, JSON.stringify(['https://idp.example', 'alice']));
   assert.equal(claims.htm, 'POST');
   assert.equal(claims.htu, '/mcp');
-  assert.equal(claims.body_sha256, (await crypto.subtle.digest('SHA-256', new TextEncoder().encode('{"jsonrpc":"2.0"}')))
-    ? Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('{"jsonrpc":"2.0"}'))).toString('base64url') : '');
+  const expectedDigest = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('{"jsonrpc":"2.0"}'))).toString('base64url');
+  assert.equal(claims.body_sha256, expectedDigest);
   assert.equal(await upstream.text(), '{"jsonrpc":"2.0"}');
 });
 
