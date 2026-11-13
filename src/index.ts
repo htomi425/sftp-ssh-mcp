@@ -61,10 +61,6 @@ const connectionGate = new ConnectionGate(parseBoundedInteger(
 const server = new McpServer({
   name: 'SSH MCP Server', // 服务器名称
   version: '1.0.5', // 服务器版本
-  capabilities: { // 服务器能力
-    resources: {}, // 资源能力
-    tools: {}, // 工具能力
-  },
 });
 
 // 实现 SFTP 上传工具
