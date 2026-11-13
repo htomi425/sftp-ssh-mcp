@@ -36,7 +36,9 @@ server.tool(
   },
   async ({ target, localPath, remotePath }) => { // 工具实现
     try {
-      const sshConfig = await sshConfigForTarget(resolveToolTarget(targets, target, context, mode));
+      const selected = resolveToolTarget(targets, target, context, mode);
+      if (mode === 'http') throw new McpError(ErrorCode.InvalidRequest, 'HTTP local file transfer is disabled: server filesystem access is not permitted');
+      const sshConfig = await sshConfigForTarget(selected);
       await execSftpCommand(sshConfig, 'upload', localPath, remotePath);
       return {
         content: [{ // 返回结果
@@ -62,9 +64,10 @@ server.tool(
   },
   async ({ target, remotePath, localPath }) => {
     try {
-      const fs = await import('fs/promises');
-  const sshConfig = await sshConfigForTarget(resolveToolTarget(targets, target, context, mode));
-  await execSftpCommand(sshConfig, 'download', remotePath, localPath);
+      const selected = resolveToolTarget(targets, target, context, mode);
+      if (mode === 'http') throw new McpError(ErrorCode.InvalidRequest, 'HTTP local file transfer is disabled: server filesystem access is not permitted');
+      const sshConfig = await sshConfigForTarget(selected);
+      await execSftpCommand(sshConfig, 'download', remotePath, localPath);
       return { content: [{ type: 'text', text: `File downloaded to ${localPath}` }] };
     } catch (err: any) {
       if (err instanceof McpError) throw err;
