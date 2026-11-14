@@ -57,6 +57,12 @@ const mf = new Miniflare({
       bindings: { TEST_ENABLE_AUTHORIZATION: 'enabled-for-local-tests-only' },
     },
     {
+      name: 'other-audience', modules: true,
+      script: await bundle('./provider-other-audience-worker.mjs'),
+      compatibilityDate: '2026-08-06', compatibilityFlags: ['nodejs_compat'],
+      serviceBindings: { AUTH_SERVER: { name: 'auth', entrypoint: 'AuthServer' } },
+    },
+    {
       name: 'restricted', modules: true,
       script: await bundle('./provider-insufficient-scope-worker.mjs'),
       compatibilityDate: '2026-08-06', compatibilityFlags: ['nodejs_compat'],
@@ -74,6 +80,7 @@ try {
   const auth = await mf.getWorker('auth');
   const resource = await mf.getWorker('resource');
   const restricted = await mf.getWorker('restricted');
+  const otherAudience = await mf.getWorker('other-audience');
   const gateway = await mf.getWorker('gateway');
   const metadataResponse = await auth.fetch(issuer + '/.well-known/oauth-authorization-server');
   assert.equal(metadataResponse.status, 200, 'authorization discovery');
@@ -236,6 +243,14 @@ try {
   });
   assert.equal(restrictedResponse.status, 403, 'valid token without mcp:admin must be denied');
   assert.match(restrictedResponse.headers.get('www-authenticate') || '', /insufficient_scope/i);
+  const wrongAudience = await otherAudience.fetch('https://other-resource.example.invalid/mcp', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token.access_token,
+      Accept: 'application/json' },
+    body: '{}',
+  });
+  assert.equal(wrongAudience.status, 401,
+    'valid OAuth token must not authenticate a different protected resource');
   const wrongResource = await resource.fetch('https://resource.example.invalid/other', {
     method: 'POST', headers: { Authorization: 'Bearer ' + token.access_token }, body: '{}',
   });
