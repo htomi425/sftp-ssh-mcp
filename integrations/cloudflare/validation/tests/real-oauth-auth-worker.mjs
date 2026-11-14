@@ -38,6 +38,7 @@ export class AuthServer extends WorkerEntrypoint {
 
 export default {
   fetch(request, env, ctx) {
+    if (new URL(request.url).pathname === '/authorize') return handleAuthorization(request, env);
     return authorizationServer.fetch(request, env, ctx);
   },
 };
