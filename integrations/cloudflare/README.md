@@ -15,3 +15,13 @@ The `ORIGIN` Service Binding must point to a private route reaching the Node.js 
 Provider storage requires `OAUTH_KV`. CIMD requires `global_fetch_strictly_public` and a compatible Workers compatibility date. Keep `/authorize`, `/oauth/token`, metadata, and client registration reachable for OAuth discovery rather than accidentally blocking them with a separate Access browser login. Configure production secrets and a private Service Binding separately after review. The configuration scaffold's tests verify routing/metadata and fail-closed requirements only; they do **not** test a live OAuth login, token refresh, Worker runtime, or the origin path.
 
 Reference: https://github.com/cloudflare/workers-oauth-provider (provider API and deployment prerequisites).
+
+## Workers OAuth Provider v1 split integration
+
+Cloudflare's October 2026 v1 API uses **separate** `OAuthAuthorizationServer` and `OAuthResourceServer` instances. `oauth-provider-config.mjs` now returns two separate configuration objects; the older combined `OAuthProvider` options must not be used with them. The authorization Worker must implement login and explicit consent before calling `completeAuthorization`, and expose `validateToken` over its private Service Binding. The resource Worker supplies `validateToken: env => env.AUTH_SERVER.validateToken`.
+
+`verified-resource-handler.mjs` receives the resource server's verified `ctx.auth` and `ctx.props`; it enforces `mcp:invoke` explicitly (the provider's `requiredScopes` is advertised, not enforced). Only after that check may its `forward` callback invoke `forwardVerifiedIdentity` from `resource-gateway.mjs`, which signs a fresh origin assertion. The `props.issuer` and `props.userId` fields must originate exclusively from the authorization Worker's trusted login/consent process, never client-provided input.
+
+These are tested building blocks, **not** deployable Workers. The WorkerEntrypoint, login/consent UI, provider binding, provider KV storage, and OAuth end-to-end tests are still outstanding.
+
+Cloudflare v1 reference: https://developers.cloudflare.com/agents/model-context-protocol/protocol/authorization/
