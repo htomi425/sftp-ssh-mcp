@@ -1,9 +1,6 @@
 name: Dependency review (candidate only)
 
 on:
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
   push:
     branches:
