@@ -210,6 +210,30 @@ try {
     });
     assert.equal(initGateway.status, 200);
     const initForward = await initGateway.json();
+    // The same valid OAuth token and correctly signed assertion must be
+    // rejected by a Node origin whose local allowlist omits this identity.
+    const unmappedPolicy = parseIdentityTargetPolicy(JSON.stringify([{
+      issuer: gatewayIssuer,
+      subject: JSON.stringify(['https://test-idp.example.invalid', 'different-user']),
+      targets: ['alpha'],
+    }]), new Set(Object.keys(targetRegistry)));
+    const unmappedServer = createAuthenticatedHttpServer(
+      createGatewayHttpAuthenticator(originVerifier, createInMemoryReplayCache(), unmappedPolicy),
+      createStreamableHttpHandler(user => createToolServer(targetRegistry, { principal: user }, 'http')));
+    const unmappedAddress = await listenLoopback(unmappedServer, '127.0.0.1', 0);
+    try {
+      const unmappedResponse = await fetch('http://127.0.0.1:' + unmappedAddress.port + '/mcp', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + initForward.assertion,
+          'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+        body: initBody,
+      });
+      assert.equal(unmappedResponse.status, 401,
+        'valid OAuth token and gateway signature cannot bypass Node identity allowlist');
+    } finally {
+      await new Promise((resolve, reject) =>
+        unmappedServer.close(error => error ? reject(error) : resolve()));
+    }
     const initNode = await nodeRpc(initBody, initForward.assertion);
     assert.equal(initNode.status, 200, 'OAuth-authenticated MCP initialize reaches Node HTTP');
     assert.match(await initNode.text(), /SSH MCP Server/);
