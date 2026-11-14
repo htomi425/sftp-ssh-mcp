@@ -31,3 +31,9 @@ Cloudflare v1 reference: https://developers.cloudflare.com/agents/model-context-
 `authorization-worker.mjs` composes an `OAuthAuthorizationServer` v1 instance with `createAuthorizationHandler`, delegates discovery/token endpoints, and exposes `validateToken` for the private Service Binding. `resource-worker.mjs` composes `OAuthResourceServer`, validates through `env.AUTH_SERVER.validateToken`, explicitly checks `mcp:invoke`, and forwards verified identities using a fresh signed origin assertion.
 
 These modules use dependency injection so unit tests can run without Cloudflare runtime. They **do not** establish a trusted login session, render a production consent page, provision the authorization server's storage, configure Service Bindings, or deploy a Worker. The `AUTH_SERVER` binding must be an authenticated, private service binding to the authorization Worker, not a client-controlled HTTP URL. Run the real Workers OAuth Provider runtime and browser/client OAuth end-to-end tests before production use.
+
+## Isolated real-provider validation
+
+`validation/package.json` contains an independent dependency on `@cloudflare/workers-oauth-provider` v1. The manually triggered workflow `.github/workflows/cloudflare-oauth-validation.yml` installs it in that directory and executes `validation/tests/provider-import-smoke.mjs`. This verifies real package exports and resource-server construction, without touching the root lockfile, CT 200, Cloudflare settings, or deploying Workers. Run manually from GitHub Actions when the workflow is visible in the branch; ordinary root CI does not run this workflow. The dependency range is intentionally isolated; pin and lock it before deployment.
+
+A successful smoke test **does not** prove Cloudflare runtime compatibility, consent/login correctness, private Service Binding functionality, token refresh, or OAuth E2E behavior. Those need a separate test Worker environment and explicit deployment approval.
