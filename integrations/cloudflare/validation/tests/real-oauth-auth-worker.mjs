@@ -10,6 +10,9 @@ const authorizationServer = new OAuthAuthorizationServer({
 });
 
 async function handleAuthorization(request, env) {
+  if (env.TEST_ENABLE_AUTHORIZATION !== 'enabled-for-local-tests-only') {
+    return new Response('Disabled', { status: 403 });
+  }
   const oauth = authorizationServer.getOAuthApi(env);
   const parsed = await oauth.parseAuthRequest(request);
   // Test-only synthetic identity. Never deploy this entrypoint as a login handler.
