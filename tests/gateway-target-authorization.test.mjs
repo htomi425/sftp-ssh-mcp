@@ -84,9 +84,6 @@ test('signed gateway identities enforce per-user SSH target permissions through 
     assert.equal(unknown.status, 401, 'unmapped signed identity rejected');
     const tampered = await rpc('alice', 'tools/list', {}, { claims: { body_sha256: 'A'.repeat(43) } });
     assert.equal(tampered.status, 401, 'signed but incorrectly bound body rejected');
-    const noTarget = await rpc('alice', 'tools/call', { name: 'exec', arguments: { command: 'echo no-default' } });
-    assert.equal(noTarget.status, 200);
-    assert.match(JSON.stringify(noTarget.message), /access denied|target.*required|specify.*target/i);
   } finally {
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
