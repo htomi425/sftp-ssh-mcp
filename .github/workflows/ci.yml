@@ -144,5 +144,5 @@ jobs:
           node-version: '24'
       - name: Install isolated Cloudflare OAuth Provider
         run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
-      - name: Verify real OAuth Provider v1 imports and construction
+      - name: Verify Cloudflare runtime-specific package imports with workerd-compatible bundler
         run: npm run check:provider
