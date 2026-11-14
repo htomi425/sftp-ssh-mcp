@@ -5,10 +5,11 @@
   "description": "Isolated validation of Cloudflare Workers OAuth Provider v1; never deployed automatically",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check:provider": "node tests/provider-import-smoke.mjs"
+    "check:provider": "node tests/provider-bundle-smoke.mjs"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^1.0.0"
+    "@cloudflare/workers-oauth-provider": "^1.0.0",
+    "esbuild": "^0.25.0"
   },
   "engines": {
     "node": ">=22"
