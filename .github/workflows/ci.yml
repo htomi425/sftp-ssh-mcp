@@ -142,3 +142,5 @@ jobs:
         run: npm run check:provider-binding
       - name: Verify real OAuth provider and KV token rejection over Service Binding
         run: npm run check:real-oauth-binding
+      - name: Verify OAuth PKCE authorization code and token acceptance in workerd
+        run: npm run check:real-oauth-pkce
