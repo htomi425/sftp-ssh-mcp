@@ -49,7 +49,7 @@ try {
       token_endpoint_auth_method: 'none', grant_types: ['authorization_code'],
       response_types: ['code'] }),
   });
-  assert.ok(registration.ok, 'client registration: ' + registration.status + ' ' + await registration.text().catch(() => ''));
+  assert.ok(registration.ok, 'client registration: ' + registration.status + ' ' + await registration.clone().text().catch(() => ''));
   const client = await registration.json();
   assert.ok(client.client_id);
 
