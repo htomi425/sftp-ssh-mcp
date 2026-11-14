@@ -9,7 +9,8 @@
     "check:workerd": "node tests/provider-workerd-smoke.mjs",
     "check:binding": "node tests/service-binding-workerd-smoke.mjs",
     "check:provider-binding": "node tests/provider-binding-workerd-smoke.mjs",
-    "check:real-oauth-binding": "node tests/real-oauth-binding-workerd-smoke.mjs"
+    "check:real-oauth-binding": "node tests/real-oauth-binding-workerd-smoke.mjs",
+    "check:real-oauth-pkce": "node tests/real-oauth-pkce-workerd-smoke.mjs"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.0.0",
