@@ -45,6 +45,23 @@ export async function handleResourceRequest(request, env, verifyAccessToken, set
   } catch {
     return json(401, 'invalid_token', { 'WWW-Authenticate': challenge });
   }
+  return forwardVerifiedIdentity(request, env, identity, settings);
+}
+
+/**
+ * Forward only a verified OAuth identity. The caller MUST be the
+ * OAuthResourceServer's handler after Service Binding token validation.
+ */
+export async function forwardVerifiedIdentity(request, env, identity, settings) {
+  const url = new URL(request.url);
+  if (url.pathname !== '/mcp' || url.search ||
+      !['POST', 'GET', 'DELETE'].includes(request.method) ||
+      request.headers.has('Origin')) return json(403, 'request_not_allowed');
+  if (!identity || typeof identity.issuer !== 'string' || !identity.issuer ||
+      typeof identity.subject !== 'string' || !identity.subject ||
+      !Array.isArray(identity.scopes) || !identity.scopes.includes(settings.requiredScope)) {
+    return json(403, 'insufficient_scope');
+  }
   // Node origin accepts at most 16 MiB; bound the request at the gateway too.
   if (Number(request.headers.get('Content-Length')) > 16 * 1024 * 1024) return json(413, 'body_too_large');
   const raw = new Uint8Array(await request.arrayBuffer());
