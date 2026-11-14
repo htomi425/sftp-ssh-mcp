@@ -62,6 +62,9 @@ export async function forwardVerifiedIdentity(request, env, identity, settings) 
       !Array.isArray(identity.scopes) || !identity.scopes.includes(settings.requiredScope)) {
     return json(403, 'insufficient_scope');
   }
+  // The assertion binds raw bytes; reject content transformations and bodies on GET/DELETE.
+  if (request.headers.has('Content-Encoding') ||
+      (request.method !== 'POST' && request.body !== null)) return json(400, 'unsupported_request_body');
   // Node origin accepts at most 16 MiB; bound the request at the gateway too.
   if (Number(request.headers.get('Content-Length')) > 16 * 1024 * 1024) return json(413, 'body_too_large');
   // Read incrementally: chunked requests must not bypass the memory limit.
