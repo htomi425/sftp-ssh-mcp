@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { generateKeyPairSync, createPublicKey, verify as verifySignature, webcrypto } from 'node:crypto';
-import { handleResourceRequest } from '../integrations/cloudflare/resource-gateway.mjs';
+import { handleResourceRequest, forwardVerifiedIdentity } from '../integrations/cloudflare/resource-gateway.mjs';
 
 const crypto = globalThis.crypto ?? webcrypto;
 const keys = generateKeyPairSync('ed25519');
@@ -54,4 +54,17 @@ test('gateway denies invalid tokens, missing scopes, origins and unexpected rout
   assert.equal((await handleResourceRequest(req({ Origin: 'https://evil.example' }), env, allowed, settings)).status, 403);
   assert.equal((await handleResourceRequest(new Request(resource + '/other'), env, allowed, settings)).status, 404);
   assert.equal(received.length, 0);
+});
+
+test('verified resource context signs gateway assertion without using caller bearer', async () => {
+  const { env, received } = setup();
+  const response = await forwardVerifiedIdentity(req({ Authorization: 'Bearer attacker_supplied' }), env, {
+    issuer: 'https://idp.example', subject: 'alice', scopes: ['mcp:invoke'],
+  }, settings);
+  assert.equal(response.status, 200);
+  assert.equal(received.length, 1);
+  assert.notEqual(received[0].headers.get('authorization'), 'Bearer attacker_supplied');
+  const jwt = received[0].headers.get('authorization').slice(7);
+  const claims = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url'));
+  assert.equal(claims.sub, JSON.stringify(['https://idp.example', 'alice']));
 });
