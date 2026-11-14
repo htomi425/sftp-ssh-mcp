@@ -130,6 +130,12 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
+      - name: Install root dependencies for Node origin verifier
+        run: npm ci
+        working-directory: .
+      - name: Compile Node origin verifier
+        run: npm run build
+        working-directory: .
       - name: Install isolated Cloudflare OAuth Provider
         run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
       - name: Verify Cloudflare runtime-specific package imports with workerd-compatible bundler
