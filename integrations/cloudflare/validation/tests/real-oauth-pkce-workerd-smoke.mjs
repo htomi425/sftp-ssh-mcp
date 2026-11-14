@@ -7,6 +7,10 @@ import { createRequestBoundGatewayVerifier } from '../../../../build/gateway-req
 import { createInMemoryReplayCache } from '../../../../build/gateway-replay.js';
 import { parseIdentityTargetPolicy } from '../../../../build/identity-target-policy.js';
 import { selectAuthorizedTarget } from '../../../../build/http-targets.js';
+import { createAuthenticatedHttpServer, listenLoopback } from '../../../../build/http-server.js';
+import { createGatewayHttpAuthenticator } from '../../../../build/gateway-http-auth.js';
+import { createStreamableHttpHandler } from '../../../../build/http-mcp.js';
+import { createToolServer } from '../../../../build/tool-server.js';
 
 async function bundle(name) {
   const result = await build({
@@ -174,6 +178,53 @@ try {
   assert.throws(() => createRequestBoundGatewayVerifier(originVerifier, createInMemoryReplayCache())
     .verifyOnce(forwarded.assertion, { ...requestBinding, body: Buffer.from(gatewayBody + ' ') }),
     'gateway assertion must not authenticate a modified body');
+  // Real HTTP MCP server: use a fresh assertion from the OAuthResourceServer
+  // and pass the exact bytes into Node's production authentication boundary.
+  const httpAuth = createGatewayHttpAuthenticator(originVerifier, createInMemoryReplayCache(), identityPolicy);
+  const nodeServer = createAuthenticatedHttpServer(httpAuth,
+    createStreamableHttpHandler(user => createToolServer(targetRegistry, { principal: user }, 'http')));
+  const { port } = await listenLoopback(nodeServer, '127.0.0.1', 0);
+  const nodeUrl = 'http://127.0.0.1:' + port + '/mcp';
+  async function nodeRpc(body, assertion) {
+    return fetch(nodeUrl, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + assertion,
+        'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body,
+    });
+  }
+  try {
+    const initBody = JSON.stringify({ jsonrpc: '2.0', id: 11, method: 'initialize',
+      params: { protocolVersion: '2025-06-18', capabilities: {},
+        clientInfo: { name: 'real-oauth-node-test', version: '1' } } });
+    const initGateway = await gateway.fetch(resourceUrl, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + token.access_token,
+        'Content-Type': 'application/json', Accept: 'application/json' }, body: initBody,
+    });
+    assert.equal(initGateway.status, 200);
+    const initForward = await initGateway.json();
+    const initNode = await nodeRpc(initBody, initForward.assertion);
+    assert.equal(initNode.status, 200, 'OAuth-authenticated MCP initialize reaches Node HTTP');
+    assert.match(await initNode.text(), /SSH MCP Server/);
+    const deniedBody = JSON.stringify({ jsonrpc: '2.0', id: 12, method: 'tools/call',
+      params: { name: 'exec', arguments: { target: 'beta', command: 'echo forbidden' } } });
+    const deniedGateway = await gateway.fetch(resourceUrl, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + token.access_token,
+        'Content-Type': 'application/json', Accept: 'application/json' }, body: deniedBody,
+    });
+    assert.equal(deniedGateway.status, 200);
+    const deniedForward = await deniedGateway.json();
+    const deniedNode = await nodeRpc(deniedBody, deniedForward.assertion);
+    assert.equal(deniedNode.status, 200, 'MCP authorization denial is an MCP response');
+    assert.match(await deniedNode.text(), /access denied/i, 'OAuth user cannot execute on beta');
+    assert.equal((await nodeRpc(deniedBody, deniedForward.assertion)).status, 401,
+      'Node rejects replayed OAuth gateway assertion');
+    assert.equal((await nodeRpc(deniedBody + ' ', deniedForward.assertion)).status, 401,
+      'Node rejects tampered OAuth gateway request');
+    console.log('Real OAuth -> workerd gateway -> Node HTTP MCP initialize and target denial passed');
+  } finally {
+    await new Promise((resolve, reject) => nodeServer.close(error => error ? reject(error) : resolve()));
+  }
   const gatewayRejected = await gateway.fetch(resourceUrl, {
     method: 'POST', headers: { Authorization: 'Bearer invalid-token', Accept: 'application/json' },
     body: gatewayBody,
