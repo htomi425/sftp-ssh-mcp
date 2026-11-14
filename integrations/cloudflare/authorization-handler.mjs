@@ -15,7 +15,19 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
       if (url.pathname !== '/authorize' || !['GET', 'POST'].includes(request.method)) {
         return new Response('Not found', { status: 404 });
       }
-      if (request.headers.has('Origin') && new URL(request.headers.get('Origin')).origin !== url.origin) {
+      // Consent is a state-changing browser action. Require a same-origin
+      // Origin header rather than relying on cookies or a caller-provided handle.
+      // Never let malformed Origin values escape as an unhandled exception.
+      if (request.method === 'POST') {
+        const origin = request.headers.get('Origin');
+        if (!origin || origin === 'null' || origin !== url.origin) {
+          return new Response('Forbidden', { status: 403 });
+        }
+        const contentType = request.headers.get('Content-Type') || '';
+        if (!/^application\\/x-www-form-urlencoded(?:\\s*;|\\s*$)/i.test(contentType)) {
+          return new Response('Unsupported media type', { status: 415 });
+        }
+      } else if (request.headers.has('Origin') && request.headers.get('Origin') !== url.origin) {
         return new Response('Forbidden', { status: 403 });
       }
       // Must be backed by an authenticated session; no anonymous grants.
@@ -33,6 +45,10 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
       }
       // No grant without a valid CSRF-protected consent handle from provider.
       const form = await request.formData();
+      if (form.getAll('handle').length !== 1 || form.getAll('decision').length !== 1 ||
+          [...form.keys()].some(key => key !== 'handle' && key !== 'decision')) {
+        return new Response('Invalid consent form', { status: 400 });
+      }
       const handle = form.get('handle');
       if (typeof handle !== 'string' || !handle || handle.length > 2048) {
         return new Response('Invalid consent handle', { status: 400 });
