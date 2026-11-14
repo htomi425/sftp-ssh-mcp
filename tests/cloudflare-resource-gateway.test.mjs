@@ -68,3 +68,21 @@ test('verified resource context signs gateway assertion without using caller bea
   const claims = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url'));
   assert.equal(claims.sub, JSON.stringify(['https://idp.example', 'alice']));
 });
+
+test('chunked upload exceeding 16 MiB is rejected before forwarding', async () => {
+  const { env, received } = setup();
+  let sent = 0;
+  const chunk = new Uint8Array(1024 * 1024);
+  const body = new ReadableStream({
+    pull(controller) {
+      if (sent++ < 17) controller.enqueue(chunk);
+      else controller.close();
+    },
+  });
+  const request = new Request(resource, { method: 'POST', body, duplex: 'half' });
+  const response = await forwardVerifiedIdentity(request, env, {
+    issuer: 'https://idp.example', subject: 'alice', scopes: ['mcp:invoke'],
+  }, settings);
+  assert.equal(response.status, 413);
+  assert.equal(received.length, 0);
+});
