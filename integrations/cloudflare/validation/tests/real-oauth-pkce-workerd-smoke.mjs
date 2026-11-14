@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, generateKeyPairSync, verify as verifySignature } from 'node:crypto';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
 
@@ -16,8 +16,30 @@ async function bundle(name) {
 const issuer = 'https://auth.example.invalid';
 const resourceUrl = 'https://resource.example.invalid/mcp';
 const redirectUri = 'https://client.example.invalid/callback';
+const gatewayKeys = generateKeyPairSync('ed25519');
+const gatewayIssuer = 'https://gateway.example.invalid';
+const gatewayAudience = 'ssh-mcp-origin';
 const mf = new Miniflare({
   workers: [
+    {
+      name: 'origin', modules: true,
+      script: await bundle('./real-oauth-origin-capture-worker.mjs'),
+      compatibilityDate: '2026-08-06',
+    },
+    {
+      name: 'gateway', modules: true,
+      script: await bundle('./real-oauth-resource-gateway-worker.mjs'),
+      compatibilityDate: '2026-08-06', compatibilityFlags: ['nodejs_compat'],
+      serviceBindings: {
+        AUTH_SERVER: { name: 'auth', entrypoint: 'AuthServer' },
+        ORIGIN: 'origin',
+      },
+      bindings: {
+        GATEWAY_PRIVATE_KEY: gatewayKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }),
+        GATEWAY_ISSUER: gatewayIssuer,
+        GATEWAY_AUDIENCE: gatewayAudience,
+      },
+    },
     {
       name: 'auth', modules: true,
       script: await bundle('./real-oauth-auth-worker.mjs'),
@@ -43,6 +65,7 @@ try {
   const auth = await mf.getWorker('auth');
   const resource = await mf.getWorker('resource');
   const restricted = await mf.getWorker('restricted');
+  const gateway = await mf.getWorker('gateway');
   const metadataResponse = await auth.fetch(issuer + '/.well-known/oauth-authorization-server');
   assert.equal(metadataResponse.status, 200, 'authorization discovery');
   const metadata = await metadataResponse.json();
@@ -93,6 +116,35 @@ try {
       Accept: 'application/json' }, body: '{}',
   });
   assert.equal(accepted.status, 200, 'issued access token must pass resource validation');
+  const gatewayBody = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
+  const gatewayResponse = await gateway.fetch(resourceUrl, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token.access_token,
+      Accept: 'application/json', 'Content-Type': 'application/json',
+      'X-User': 'forged-admin', 'X-Targets': 'forged-root' },
+    body: gatewayBody,
+  });
+  assert.equal(gatewayResponse.status, 200, 'real OAuth resource worker forwards verified identity');
+  const forwarded = await gatewayResponse.json();
+  assert.equal(forwarded.body, gatewayBody);
+  assert.equal(forwarded.method, 'POST');
+  assert.equal(forwarded.path, '/mcp');
+  const parts = forwarded.assertion.split('.');
+  assert.equal(parts.length, 3);
+  assert.equal(verifySignature(null, Buffer.from(parts[0] + '.' + parts[1]),
+    gatewayKeys.publicKey, Buffer.from(parts[2], 'base64url')), true);
+  const claims = JSON.parse(Buffer.from(parts[1], 'base64url'));
+  assert.equal(claims.iss, gatewayIssuer);
+  assert.equal(claims.aud, gatewayAudience);
+  assert.equal(claims.sub, JSON.stringify(['https://test-idp.example.invalid', 'test-user']));
+  assert.equal(claims.htm, 'POST');
+  assert.equal(claims.htu, '/mcp');
+  assert.equal(claims.body_sha256, createHash('sha256').update(gatewayBody).digest('base64url'));
+  const gatewayRejected = await gateway.fetch(resourceUrl, {
+    method: 'POST', headers: { Authorization: 'Bearer invalid-token', Accept: 'application/json' },
+    body: gatewayBody,
+  });
+  assert.equal(gatewayRejected.status, 401, 'invalid OAuth token must not reach origin');
   const restrictedResponse = await restricted.fetch(resourceUrl, {
     method: 'POST', headers: { Authorization: 'Bearer ' + token.access_token,
       Accept: 'application/json' }, body: '{}',
@@ -105,7 +157,7 @@ try {
   assert.notEqual(wrongResource.status, 200, 'token cannot access unrelated path');
   const replay = await exchange(verifier);
   assert.ok(!replay.ok, 'authorization code replay must fail');
-  console.log('Real OAuth PKCE code exchange, token acceptance, scope rejection and code replay rejection passed');
+  console.log('Real OAuth PKCE code exchange, token acceptance, signed gateway forwarding, scope rejection and code replay rejection passed');
 } finally {
   await mf.dispose();
 }
