@@ -48,7 +48,8 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
         scope: ['mcp:invoke'],
       });
       if (!approved?.request || !Array.isArray(approved.request.scope) ||
-          !approved.request.scope.includes('mcp:invoke')) {
+          !approved.request.scope.includes('mcp:invoke') ||
+          approved.request.scope.some(scope => scope !== 'mcp:invoke')) {
         return new Response('Requested scope not permitted', { status: 403 });
       }
       const { redirectTo } = await oauth.completeAuthorization({
