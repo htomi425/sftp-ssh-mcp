@@ -34,3 +34,24 @@ export function createAuthorizationWorker({
     },
   };
 }
+
+/**
+ * Bind the authorization Worker to Cloudflare's WorkerEntrypoint RPC model.
+ * A Service Binding invokes validateToken(resource, token) with no env argument;
+ * the entrypoint supplies its own trusted this.env.
+ */
+export function createAuthorizationEntrypoint(WorkerEntrypoint, authorizationWorker) {
+  if (typeof WorkerEntrypoint !== 'function' ||
+      typeof authorizationWorker?.fetch !== 'function' ||
+      typeof authorizationWorker?.validateToken !== 'function') {
+    throw new Error('WorkerEntrypoint and authorization Worker required');
+  }
+  return class AuthServer extends WorkerEntrypoint {
+    fetch(request) {
+      return authorizationWorker.fetch(request, this.env, this.ctx);
+    }
+    validateToken(resource, token) {
+      return authorizationWorker.validateToken(resource, token, this.env);
+    }
+  };
+}
