@@ -28,6 +28,8 @@ const redirectUri = 'https://client.example.invalid/callback';
 const gatewayKeys = generateKeyPairSync('ed25519');
 const gatewayIssuer = 'https://gateway.example.invalid';
 const gatewayAudience = 'ssh-mcp-origin';
+const testSessionToken = 'S'.repeat(48);
+const testSessionCookie = '__Host-ssh_mcp_session=' + testSessionToken;
 const mf = new Miniflare({
   workers: [
     {
@@ -54,7 +56,8 @@ const mf = new Miniflare({
       script: await bundle('./real-oauth-auth-worker.mjs'),
       compatibilityDate: '2026-08-06', compatibilityFlags: ['nodejs_compat'],
       kvNamespaces: ['OAUTH_KV'],
-      bindings: { TEST_ENABLE_AUTHORIZATION: 'enabled-for-local-tests-only' },
+      bindings: { TEST_ENABLE_AUTHORIZATION: 'enabled-for-local-tests-only',
+        TEST_SESSION_TOKEN: testSessionToken },
     },
     {
       name: 'other-audience', modules: true,
@@ -108,8 +111,24 @@ try {
     code_challenge: challenge, code_challenge_method: 'S256', scope: 'mcp:invoke',
     resource: resourceUrl, state,
   })) url.searchParams.set(key, value);
-  const authorization = await auth.fetch(url, { redirect: 'manual' });
-  assert.equal(authorization.status, 302, 'authorization code redirect');
+  const unauthenticated = await auth.fetch(url, { redirect: 'manual' });
+  assert.equal(unauthenticated.status, 401, 'authorization requires verified login session');
+  const consentResponse = await auth.fetch(url, {
+    headers: { Cookie: testSessionCookie }, redirect: 'manual',
+  });
+  assert.equal(consentResponse.status, 200, 'real provider must render consent before grant');
+  const consentHtml = await consentResponse.text();
+  assert.match(consentHtml, /value="approve"/);
+  assert.match(consentHtml, /value="deny"/);
+  const consentHandle = consentHtml.match(/name="handle" value="([^"]+)"/)?.[1];
+  assert.ok(consentHandle, 'real provider consent handle');
+  const authorization = await auth.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: { Cookie: testSessionCookie, Origin: issuer,
+      'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle: consentHandle, decision: 'approve' }),
+  });
+  assert.equal(authorization.status, 302, 'explicit consent authorization code redirect');
   const callback = new URL(authorization.headers.get('location'));
   assert.equal(callback.origin + callback.pathname, redirectUri);
   assert.equal(callback.searchParams.get('state'), state);
