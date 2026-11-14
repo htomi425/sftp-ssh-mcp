@@ -24,7 +24,8 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
           return new Response('Forbidden', { status: 403 });
         }
         const contentType = request.headers.get('Content-Type') || '';
-        if (!/^application\\/x-www-form-urlencoded(?:\\s*;|\\s*$)/i.test(contentType)) {
+        if (!contentType.toLowerCase().split(";")[0].trim().startsWith("application/x-www-form-urlencoded") ||
+            contentType.toLowerCase().split(";")[0].trim() !== "application/x-www-form-urlencoded") {
           return new Response('Unsupported media type', { status: 415 });
         }
       } else if (request.headers.has('Origin') && request.headers.get('Origin') !== url.origin) {
