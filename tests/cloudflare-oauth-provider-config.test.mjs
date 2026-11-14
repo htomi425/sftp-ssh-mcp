@@ -11,14 +11,15 @@ const valid = {
 };
 test('OAuth provider metadata is resource-bound with distinct protected and authorization handlers', () => {
   const options = createOAuthProviderConfiguration(valid);
-  assert.equal(options.apiRoute, '/mcp');
-  assert.equal(options.apiHandler, resourceHandler);
-  assert.equal(options.defaultHandler, authorizationHandler);
-  assert.equal(options.resourceMetadata.resource, valid.resourceUrl);
-  assert.deepEqual(options.resourceMetadata.authorization_servers, ['https://ssh-mcp.example']);
-  assert.deepEqual(options.resourceMetadata.scopes_supported, ['mcp:invoke']);
-  assert.equal(options.clientIdMetadataDocumentEnabled, true);
-  assert.equal(options.tokenEndpoint, '/oauth/token');
+  assert.equal(options.resource.resourceMetadata.resource, valid.resourceUrl);
+  assert.equal(options.resource.handler, resourceHandler);
+  assert.equal(options.authorizationHandler, authorizationHandler);
+  assert.equal(options.resource.resourceMetadata.resource, valid.resourceUrl);
+  assert.deepEqual(options.resource.resourceMetadata.authorization_servers, ['https://ssh-mcp.example']);
+  assert.deepEqual(options.resource.resourceMetadata.scopes_supported, ['mcp:invoke']);
+  assert.equal(options.authorization.clientIdMetadataDocumentEnabled, true);
+  assert.deepEqual(options.authorization.resources, [valid.resourceUrl]);
+  assert.deepEqual(options.resource.requiredScopes, ['mcp:invoke']);
 });
 test('OAuth provider setup fails closed without explicit authentication and consent handler', () => {
   assert.throws(() => createOAuthProviderConfiguration({ ...valid, authorizationHandler: undefined }), /authorization\/consent/);
