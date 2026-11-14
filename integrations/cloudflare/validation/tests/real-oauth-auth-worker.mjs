@@ -1,3 +1,4 @@
+import { createConsentAuthorizationWorker } from '../../consent-authorization-worker.mjs';
 import { OAuthAuthorizationServer } from '@cloudflare/workers-oauth-provider';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 
@@ -12,19 +13,20 @@ const authorizationServer = new OAuthAuthorizationServer({
   clientRegistrationEndpoint: '/oauth/register',
 });
 
+// Local-test-only trusted session verifier; NEVER deploy this entrypoint.
+// Real deployments must supply an independent IdP-backed verifier.
+const consentWorker = createConsentAuthorizationWorker({
+  authorizationServer,
+  verifySession: async (token, env) =>
+    env.TEST_ENABLE_AUTHORIZATION === 'enabled-for-local-tests-only' &&
+    token === env.TEST_SESSION_TOKEN
+      ? { id: 'test-user', issuer: 'https://test-idp.example.invalid' } : null,
+});
 async function handleAuthorization(request, env) {
   if (env.TEST_ENABLE_AUTHORIZATION !== 'enabled-for-local-tests-only') {
     return new Response('Disabled', { status: 403 });
   }
-  const oauth = authorizationServer.getOAuthApi(env);
-  const parsed = await oauth.parseAuthRequest(request);
-  // Test-only synthetic identity. Never deploy this entrypoint as a login handler.
-  const result = await oauth.completeAuthorization({
-    request: parsed, userId: 'test-user', metadata: {},
-    scope: parsed.scope.filter(value => value === 'mcp:invoke'),
-    props: { userId: 'test-user', issuer: 'https://test-idp.example.invalid' },
-  });
-  return Response.redirect(result.redirectTo, 302);
+  return consentWorker.fetch(request, env);
 }
 
 export class AuthServer extends WorkerEntrypoint {
