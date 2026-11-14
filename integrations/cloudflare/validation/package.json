@@ -1,0 +1,16 @@
+{
+  "name": "ssh-mcp-cloudflare-oauth-validation",
+  "private": true,
+  "type": "module",
+  "description": "Isolated validation of Cloudflare Workers OAuth Provider v1; never deployed automatically",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check:provider": "node tests/provider-import-smoke.mjs"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,22 @@
+name: Cloudflare OAuth Provider validation (manual)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provider-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integrations/cloudflare/validation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install isolated provider package
+        run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
+      - name: Verify real v1 package imports and constructor
+        run: npm run check:provider
