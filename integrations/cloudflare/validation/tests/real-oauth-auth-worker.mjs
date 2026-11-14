@@ -3,7 +3,10 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 
 const authorizationServer = new OAuthAuthorizationServer({
   issuer: 'https://auth.example.invalid',
-  resources: ['https://resource.example.invalid/mcp'],
+  resources: [
+    'https://resource.example.invalid/mcp',
+    'https://other-resource.example.invalid/mcp',
+  ],
   scopesSupported: ['mcp:invoke'],
   clientIdMetadataDocumentEnabled: false,
   clientRegistrationEndpoint: '/oauth/register',
