@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes, generateKeyPairSync, verify as verifySignature } from 'node:crypto';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
+import { createGatewayAssertionVerifier } from '../../../../build/gateway-assertion.js';
+import { createRequestBoundGatewayVerifier } from '../../../../build/gateway-request-binding.js';
+import { createInMemoryReplayCache } from '../../../../build/gateway-replay.js';
+import { parseIdentityTargetPolicy } from '../../../../build/identity-target-policy.js';
+import { selectAuthorizedTarget } from '../../../../build/http-targets.js';
 
 async function bundle(name) {
   const result = await build({
@@ -140,6 +145,35 @@ try {
   assert.equal(claims.htm, 'POST');
   assert.equal(claims.htu, '/mcp');
   assert.equal(claims.body_sha256, createHash('sha256').update(gatewayBody).digest('base64url'));
+  // Validate the exact assertion produced from a real OAuth token with the Node
+  // origin's production verifier, replay cache and identity-to-target policy.
+  const originVerifier = createGatewayAssertionVerifier({
+    issuer: gatewayIssuer, audience: gatewayAudience,
+    publicKeyPem: gatewayKeys.publicKey.export({ type: 'spki', format: 'pem' }),
+  });
+  const boundVerifier = createRequestBoundGatewayVerifier(originVerifier, createInMemoryReplayCache());
+  const requestBinding = { method: 'POST', path: '/mcp', body: Buffer.from(gatewayBody) };
+  const verifiedIdentity = boundVerifier.verifyOnce(forwarded.assertion, requestBinding);
+  const targetRegistry = {
+    alpha: { host: '127.0.0.1', user: 'tester', password: 'unused', hostKeySha256: 'a'.repeat(64) },
+    beta: { host: '127.0.0.2', user: 'tester', password: 'unused', hostKeySha256: 'b'.repeat(64) },
+  };
+  const identityPolicy = parseIdentityTargetPolicy(JSON.stringify([{
+    issuer: gatewayIssuer,
+    subject: JSON.stringify(['https://test-idp.example.invalid', 'test-user']),
+    targets: ['alpha'],
+  }]), new Set(Object.keys(targetRegistry)));
+  const principal = identityPolicy.resolve(verifiedIdentity);
+  assert.equal(principal.targets.has('alpha'), true);
+  assert.equal(principal.targets.has('beta'), false);
+  assert.ok(selectAuthorizedTarget(targetRegistry, principal, 'alpha'));
+  assert.throws(() => selectAuthorizedTarget(targetRegistry, principal, 'beta'), /access denied/i,
+    'real OAuth user must not gain access to unassigned SSH target');
+  assert.throws(() => boundVerifier.verifyOnce(forwarded.assertion, requestBinding),
+    'gateway assertion replay must be denied');
+  assert.throws(() => createRequestBoundGatewayVerifier(originVerifier, createInMemoryReplayCache())
+    .verifyOnce(forwarded.assertion, { ...requestBinding, body: Buffer.from(gatewayBody + ' ') }),
+    'gateway assertion must not authenticate a modified body');
   const gatewayRejected = await gateway.fetch(resourceUrl, {
     method: 'POST', headers: { Authorization: 'Bearer invalid-token', Accept: 'application/json' },
     body: gatewayBody,
@@ -157,7 +191,7 @@ try {
   assert.notEqual(wrongResource.status, 200, 'token cannot access unrelated path');
   const replay = await exchange(verifier);
   assert.ok(!replay.ok, 'authorization code replay must fail');
-  console.log('Real OAuth PKCE code exchange, token acceptance, signed gateway forwarding, scope rejection and code replay rejection passed');
+  console.log('Real OAuth PKCE code exchange, token acceptance, signed gateway forwarding, Node identity-target enforcement, scope rejection and code replay rejection passed');
 } finally {
   await mf.dispose();
 }
