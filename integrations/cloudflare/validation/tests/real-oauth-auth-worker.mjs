@@ -26,6 +26,13 @@ async function handleAuthorization(request, env) {
   if (env.TEST_ENABLE_AUTHORIZATION !== 'enabled-for-local-tests-only') {
     return new Response('Disabled', { status: 403 });
   }
+  if (request.method === 'POST') {
+    console.log('OAuth consent request origin diagnostic', JSON.stringify({
+      urlOrigin: new URL(request.url).origin,
+      originHeader: request.headers.get('Origin'),
+      hostHeader: request.headers.get('Host'),
+    }));
+  }
   return consentWorker.fetch(request, env);
 }
 
