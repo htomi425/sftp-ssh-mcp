@@ -213,22 +213,32 @@ try {
     const initNode = await nodeRpc(initBody, initForward.assertion);
     assert.equal(initNode.status, 200, 'OAuth-authenticated MCP initialize reaches Node HTTP');
     assert.match(await initNode.text(), /SSH MCP Server/);
-    const deniedBody = JSON.stringify({ jsonrpc: '2.0', id: 12, method: 'tools/call',
-      params: { name: 'exec', arguments: { target: 'beta', command: 'echo forbidden' } } });
-    const deniedGateway = await gateway.fetch(resourceUrl, {
-      method: 'POST', headers: { Authorization: 'Bearer ' + token.access_token,
-        'Content-Type': 'application/json', Accept: 'application/json' }, body: deniedBody,
-    });
-    assert.equal(deniedGateway.status, 200);
-    const deniedForward = await deniedGateway.json();
-    const deniedNode = await nodeRpc(deniedBody, deniedForward.assertion);
-    assert.equal(deniedNode.status, 200, 'MCP authorization denial is an MCP response');
-    assert.match(await deniedNode.text(), /access denied/i, 'OAuth user cannot execute on beta');
-    assert.equal((await nodeRpc(deniedBody, deniedForward.assertion)).status, 401,
-      'Node rejects replayed OAuth gateway assertion');
-    assert.equal((await nodeRpc(deniedBody + ' ', deniedForward.assertion)).status, 401,
-      'Node rejects tampered OAuth gateway request');
-    console.log('Real OAuth -> workerd gateway -> Node HTTP MCP initialize and target denial passed');
+    // Every exposed SSH/SFTP tool must enforce the same per-principal target
+    // boundary, even when the OAuth token and gateway assertion are valid.
+    for (const [name, args] of [
+      ['exec', { target: 'beta', command: 'echo forbidden' }],
+      ['sftp_list', { target: 'beta', remotePath: '/tmp' }],
+      ['sftp_upload', { target: 'beta', localPath: '/etc/passwd', remotePath: '/tmp/blocked' }],
+      ['sftp_download', { target: 'beta', remotePath: '/etc/passwd', localPath: '/tmp/blocked' }],
+    ]) {
+      const deniedBody = JSON.stringify({ jsonrpc: '2.0', id: 12, method: 'tools/call',
+        params: { name, arguments: args } });
+      const deniedGateway = await gateway.fetch(resourceUrl, {
+        method: 'POST', headers: { Authorization: 'Bearer ' + token.access_token,
+          'Content-Type': 'application/json', Accept: 'application/json' }, body: deniedBody,
+      });
+      assert.equal(deniedGateway.status, 200, name + ': OAuth gateway forwarding');
+      const deniedForward = await deniedGateway.json();
+      const deniedNode = await nodeRpc(deniedBody, deniedForward.assertion);
+      assert.equal(deniedNode.status, 200, name + ': MCP authorization denial response');
+      assert.match(await deniedNode.text(), /access denied/i,
+        name + ': OAuth user cannot access unassigned beta target');
+      assert.equal((await nodeRpc(deniedBody, deniedForward.assertion)).status, 401,
+        name + ': Node rejects replayed OAuth gateway assertion');
+      assert.equal((await nodeRpc(deniedBody + ' ', deniedForward.assertion)).status, 401,
+        name + ': Node rejects tampered OAuth gateway request');
+    }
+    console.log('Real OAuth -> workerd gateway -> Node HTTP MCP initialize and all four tool target denials passed');
   } finally {
     await new Promise((resolve, reject) => nodeServer.close(error => error ? reject(error) : resolve()));
   }
