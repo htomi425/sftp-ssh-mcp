@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createAuthorizationWorker } from '../integrations/cloudflare/authorization-worker.mjs';
+import { createAuthorizationWorker, createAuthorizationEntrypoint } from '../integrations/cloudflare/authorization-worker.mjs';
 import { createResourceWorker } from '../integrations/cloudflare/resource-worker.mjs';
 
 test('authorization Worker delegates discovery and exposes Service Binding token validation', async () => {
@@ -51,4 +51,25 @@ test('resource Worker refuses unverified context before origin forwarding', asyn
   assert.equal((await options.handler.fetch(request, {}, {
     auth: { scope: [] }, props: { issuer: 'https://idp.example', userId: 'alice' },
   })).status, 403);
+});
+
+test('authorization Service Binding RPC uses entrypoint env, not client input', async () => {
+  const trustedEnv = { OAUTH_KV: 'trusted' };
+  const calls = [];
+  const worker = {
+    fetch(request, env, ctx) { calls.push(['fetch', env, ctx]); return new Response('ok'); },
+    validateToken(resource, token, env) {
+      calls.push(['validate', resource, token, env]);
+      return { active: true };
+    },
+  };
+  class FakeEntrypoint {
+    constructor() { this.env = trustedEnv; this.ctx = { waitUntil() {} }; }
+  }
+  const AuthServer = createAuthorizationEntrypoint(FakeEntrypoint, worker);
+  const entrypoint = new AuthServer();
+  assert.equal((await entrypoint.fetch(new Request('https://auth.example/'))).status, 200);
+  assert.deepEqual(entrypoint.validateToken('https://mcp.example/mcp', 'secret'), { active: true });
+  assert.equal(calls[0][1], trustedEnv);
+  assert.equal(calls[1][3], trustedEnv);
 });
