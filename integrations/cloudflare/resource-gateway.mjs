@@ -64,8 +64,33 @@ export async function forwardVerifiedIdentity(request, env, identity, settings) 
   }
   // Node origin accepts at most 16 MiB; bound the request at the gateway too.
   if (Number(request.headers.get('Content-Length')) > 16 * 1024 * 1024) return json(413, 'body_too_large');
-  const raw = new Uint8Array(await request.arrayBuffer());
-  if (raw.byteLength > 16 * 1024 * 1024) return json(413, 'body_too_large');
+  // Read incrementally: chunked requests must not bypass the memory limit.
+  const limit = 16 * 1024 * 1024;
+  const chunks = [];
+  let total = 0;
+  if (request.body) {
+    const reader = request.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > limit) {
+          await reader.cancel().catch(() => {});
+          return json(413, 'body_too_large');
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const raw = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    raw.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   const now = Math.floor(Date.now() / 1000);
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', raw));
   const claims = {
