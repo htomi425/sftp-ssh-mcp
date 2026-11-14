@@ -1,10 +1,7 @@
 /**
- * Optional OAuth Provider composition for Cloudflare Workers.
- *
- * Requires @cloudflare/workers-oauth-provider in the separate Worker package.
- * No login/consent implementation is bundled: callers MUST supply an
- * authenticated, consent-aware authorization handler and a protected API
- * handler. Never approve arbitrary /authorize requests automatically.
+ * Configuration inputs for Workers OAuth Provider v1's SPLIT API.
+ * Instantiate OAuthAuthorizationServer and OAuthResourceServer in separate
+ * Workers. This factory does not perform login, consent or token validation.
  */
 export function createOAuthProviderConfiguration({
   authorizationHandler,
@@ -29,21 +26,26 @@ export function createOAuthProviderConfiguration({
   if (resource.pathname !== '/mcp') throw new Error('OAuth resource URL must end in /mcp');
   const issuer = new URL(authorizationServerUrl);
   if (issuer.pathname !== '/') throw new Error('OAuth issuer must be the origin URL');
+  const scope = 'mcp:invoke';
   return {
-    apiRoute: '/mcp',
-    apiHandler: resourceHandler,
-    defaultHandler: authorizationHandler,
-    authorizeEndpoint: '/authorize',
-    tokenEndpoint: '/oauth/token',
-    scopesSupported: ['mcp:invoke'],
-    resourceMetadata: {
-      resource: resource.href,
-      authorization_servers: [issuer.origin],
-      scopes_supported: ['mcp:invoke'],
-      bearer_methods_supported: ['header'],
-      resource_name: 'SSH MCP',
+    authorization: {
+      issuer: issuer.origin,
+      resources: [resource.href],
+      scopesSupported: [scope],
+      clientIdMetadataDocumentEnabled: true,
+      clientRegistrationEndpoint: '/oauth/register',
     },
-    clientIdMetadataDocumentEnabled: true,
-    clientRegistrationEndpoint: '/oauth/register',
+    resource: {
+      resourceMetadata: {
+        resource: resource.href,
+        authorization_servers: [issuer.origin],
+        scopes_supported: [scope],
+      },
+      requiredScopes: [scope],
+      // OAuthResourceServer validates through the private AUTH_SERVER binding.
+      // Caller must supply validateToken: env => env.AUTH_SERVER.validateToken.
+      handler: resourceHandler,
+    },
+    authorizationHandler,
   };
 }
