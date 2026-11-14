@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "check:provider": "node tests/provider-bundle-smoke.mjs",
-    "check:workerd": "node tests/provider-workerd-smoke.mjs"
+    "check:workerd": "node tests/provider-workerd-smoke.mjs",
+    "check:binding": "node tests/service-binding-workerd-smoke.mjs"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.0.0",
