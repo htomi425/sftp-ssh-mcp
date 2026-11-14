@@ -28,7 +28,20 @@ try {
   assert.equal(response.status, 401, 'missing bearer token must be rejected');
   const challenge = response.headers.get('www-authenticate') || '';
   assert.match(challenge.toLowerCase(), /bearer/);
-  console.log('Real workerd OAuth resource server rejects unauthenticated MCP request');
+  const getResponse = await mf.dispatchFetch('https://resource.example.invalid/mcp', {
+    method: 'GET',
+  });
+  assert.equal(getResponse.status, 401, 'unauthenticated GET must be rejected');
+  assert.match((getResponse.headers.get('www-authenticate') || '').toLowerCase(), /bearer/);
+
+  const metadata = await mf.dispatchFetch(
+    'https://resource.example.invalid/.well-known/oauth-protected-resource/mcp',
+  );
+  assert.equal(metadata.status, 200, 'RFC 9728 protected-resource metadata must be available');
+  const body = await metadata.json();
+  assert.equal(body.resource, 'https://resource.example.invalid/mcp');
+  assert.deepEqual(body.authorization_servers, ['https://auth.example.invalid']);
+  console.log('Real workerd OAuth resource server: POST/GET 401 and RFC 9728 metadata OK');
 } finally {
   await mf.dispose();
 }
