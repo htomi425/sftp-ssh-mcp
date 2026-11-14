@@ -86,3 +86,12 @@ test('chunked upload exceeding 16 MiB is rejected before forwarding', async () =
   assert.equal(response.status, 413);
   assert.equal(received.length, 0);
 });
+
+test('gateway rejects content-encoded requests before signing or forwarding', async () => {
+  const { env, received } = setup();
+  const response = await forwardVerifiedIdentity(req({ 'Content-Encoding': 'gzip' }), env, {
+    issuer: 'https://idp.example', subject: 'alice', scopes: ['mcp:invoke'],
+  }, settings);
+  assert.equal(response.status, 400);
+  assert.equal(received.length, 0);
+});
