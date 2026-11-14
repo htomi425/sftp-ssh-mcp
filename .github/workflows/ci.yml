@@ -147,3 +147,5 @@ jobs:
         run: npm run check:provider
       - name: Verify OAuth resource server inside workerd
         run: npm run check:workerd
+      - name: Verify private Service Binding RPC inside workerd
+        run: npm run check:binding
