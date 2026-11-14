@@ -15,7 +15,8 @@ assert.equal(bundle.errors.length, 0);
 const mf = new Miniflare({
   modules: true,
   script: bundle.outputFiles[0].text,
-  compatibilityDate: '2026-11-14',
+  // Use the date supported by the installed workerd binary in CI.
+  compatibilityDate: '2026-08-06',
   compatibilityFlags: ['nodejs_compat'],
 });
 try {
