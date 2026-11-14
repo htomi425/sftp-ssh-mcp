@@ -151,3 +151,5 @@ jobs:
         run: npm run check:binding
       - name: Verify OAuth resource token rejection via Service Binding
         run: npm run check:provider-binding
+      - name: Verify real OAuth provider and KV token rejection over Service Binding
+        run: npm run check:real-oauth-binding
