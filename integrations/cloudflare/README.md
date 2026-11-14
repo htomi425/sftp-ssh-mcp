@@ -25,3 +25,9 @@ Cloudflare's October 2026 v1 API uses **separate** `OAuthAuthorizationServer` an
 These are tested building blocks, **not** deployable Workers. The WorkerEntrypoint, login/consent UI, provider binding, provider KV storage, and OAuth end-to-end tests are still outstanding.
 
 Cloudflare v1 reference: https://developers.cloudflare.com/agents/model-context-protocol/protocol/authorization/
+
+## Composed Worker modules
+
+`authorization-worker.mjs` composes an `OAuthAuthorizationServer` v1 instance with `createAuthorizationHandler`, delegates discovery/token endpoints, and exposes `validateToken` for the private Service Binding. `resource-worker.mjs` composes `OAuthResourceServer`, validates through `env.AUTH_SERVER.validateToken`, explicitly checks `mcp:invoke`, and forwards verified identities using a fresh signed origin assertion.
+
+These modules use dependency injection so unit tests can run without Cloudflare runtime. They **do not** establish a trusted login session, render a production consent page, provision the authorization server's storage, configure Service Bindings, or deploy a Worker. The `AUTH_SERVER` binding must be an authenticated, private service binding to the authorization Worker, not a client-controlled HTTP URL. Run the real Workers OAuth Provider runtime and browser/client OAuth end-to-end tests before production use.
