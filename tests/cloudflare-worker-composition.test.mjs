@@ -74,3 +74,16 @@ test('authorization Service Binding RPC uses entrypoint env, not client input', 
   assert.equal(calls[0][1], trustedEnv);
   assert.equal(calls[1][3], trustedEnv);
 });
+
+test('generic OAuth authorization Worker cannot omit consent identity binding', () => {
+  const server = {
+    getOAuthApi: () => ({}),
+    fetch: async () => new Response('provider endpoint'),
+    validateToken: async () => ({ active: false }),
+  };
+  assert.throws(() => createAuthorizationWorker({
+    authorizationServer: server,
+    authenticateUser: async () => ({ id: 'alice', issuer: 'https://login.example' }),
+    renderConsent: async () => new Response('consent'),
+  }), /identity binding is required/);
+});
