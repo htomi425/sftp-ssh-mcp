@@ -5,6 +5,7 @@ import { createConsentAuthorizationWorker } from '../integrations/cloudflare/con
 test('composed authorization Worker requires verified session and explicit consent', async () => {
   const calls = [];
   const validToken = 'a'.repeat(48);
+  let signedHandle;
   const oauth = {
     async parseAuthRequest() { calls.push('parse'); return { scope: ['mcp:invoke'] }; },
     async describeConsent() { calls.push('describe'); return {
@@ -29,6 +30,7 @@ test('composed authorization Worker requires verified session and explicit conse
       fetch: async () => new Response('provider endpoint'),
       validateToken: async () => ({ active: false }),
     },
+    consentSigningSecret: 'isolated-test-consent-secret-not-for-production-2026',
     verifySession: async token => token === validToken
       ? { id: 'alice', issuer: 'https://login.example' } : null,
   });
@@ -41,7 +43,7 @@ test('composed authorization Worker requires verified session and explicit conse
     headers: { Cookie: '__Host-ssh_mcp_session=' + cookie,
       Origin: 'https://auth.example',
       'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ handle: 'provider-handle', decision }),
+    body: new URLSearchParams({ handle: signedHandle, decision }),
   });
   assert.equal((await worker.fetch(get(null), {})).status, 401);
   assert.equal((await worker.fetch(get('b'.repeat(48)), {})).status, 401);
@@ -51,7 +53,8 @@ test('composed authorization Worker requires verified session and explicit conse
   const html = await consent.text();
   assert.match(html, /Approve/);
   assert.match(html, /Deny/);
-  assert.match(html, /provider-handle/);
+  signedHandle = html.match(/name="handle" value="([^"]+)"/)?.[1];
+  assert.ok(signedHandle);
   assert.doesNotMatch(html, /<img src=x/);
   assert.equal(calls.includes('begin'), true);
   assert.equal(calls.some(call => Array.isArray(call) && call[0] === 'complete'), false);
