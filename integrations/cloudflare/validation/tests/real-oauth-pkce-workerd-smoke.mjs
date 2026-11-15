@@ -184,7 +184,10 @@ try {
   }).catch(error => error);
   assert.ok(switchedUserConsent instanceof Error ||
     (switchedUserConsent.status !== 302 && switchedUserConsent.status !== 200),
-    'consent initiated by one user must not be approved by a different logged-in user');
+    'consent initiated by one user must not be approved by a different logged-in user: ' +
+    (switchedUserConsent instanceof Error ? switchedUserConsent.message :
+      switchedUserConsent.status + ' ' + (switchedUserConsent.headers.get('location') ?? '') +
+      ' ' + await switchedUserConsent.clone().text()));
   const authorization = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
     headers: { Cookie: [testSessionCookie, ...consentCookies].join('; '),
