@@ -25,13 +25,13 @@ export function renderOAuthConsent({ details, consent }) {
     '<button type="submit" name="decision" value="approve">Approve</button>' +
     '<button type="submit" name="decision" value="deny">Deny</button>' +
     '</form></main></body></html>';
-  return new Response(html, {
-    headers: {
+  const headers = new Headers(consent.headers);
+  for (const [name, value] of Object.entries({
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
       'Referrer-Policy': 'no-referrer',
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-    },
-  });
+  })) headers.set(name, value);
+  return new Response(html, { headers });
 }
