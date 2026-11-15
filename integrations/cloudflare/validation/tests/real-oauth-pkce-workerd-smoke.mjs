@@ -283,6 +283,11 @@ try {
       originHeader: authorization.headers.get('X-Test-Origin-Header'),
       hostHeader: authorization.headers.get('X-Test-Host-Header'),
     }));
+  // The approval redirect must retain any browser-cookie headers supplied by
+  // the real OAuth provider, rather than constructing a bare redirect.
+  const approvalCookies = authorization.headers.getSetCookie();
+  assert.ok(approvalCookies.length > 0,
+    'real OAuth provider consent completion must preserve its Set-Cookie headers');
   // The consent handle is single-use: replaying approval must not issue a second code.
   const replayedConsent = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
