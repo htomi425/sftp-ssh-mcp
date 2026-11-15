@@ -124,6 +124,29 @@ try {
   assert.match(consentHtml, /value="deny"/);
   const consentHandle = consentHtml.match(/name="handle" value="([^"]+)"/)?.[1];
   assert.ok(consentHandle, 'real provider consent handle');
+  // A separate browser consent must be explicitly denied without issuing a code.
+  const denialConsent = await auth.fetch(url, {
+    headers: { Cookie: testSessionCookie }, redirect: 'manual',
+  });
+  assert.equal(denialConsent.status, 200, 'denial flow consent page');
+  const denialCookies = denialConsent.headers.getSetCookie().map(value => value.split(';', 1)[0]);
+  assert.ok(denialCookies.length > 0, 'denial flow browser-binding cookie');
+  const denialHtml = await denialConsent.text();
+  const denialHandle = denialHtml.match(/name="handle" value="([^"]+)"/)?.[1];
+  assert.ok(denialHandle, 'denial flow consent handle');
+  const denial = await auth.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: { Cookie: [testSessionCookie, ...denialCookies].join('; '),
+      'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+      'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle: denialHandle, decision: 'deny' }),
+  });
+  assert.equal(denial.status, 302, 'explicit denial must redirect to OAuth client');
+  const deniedCallback = new URL(denial.headers.get('location'));
+  assert.equal(deniedCallback.origin + deniedCallback.pathname, redirectUri);
+  assert.equal(deniedCallback.searchParams.get('error'), 'access_denied');
+  assert.equal(deniedCallback.searchParams.get('state'), state);
+  assert.equal(deniedCallback.searchParams.has('code'), false, 'denial must not issue a code');
   const authorization = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
     headers: { Cookie: [testSessionCookie, ...consentCookies].join('; '),
