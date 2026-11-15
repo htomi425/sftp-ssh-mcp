@@ -43,3 +43,12 @@ test('consent identity binding rejects expired and excessive lifetime', async ()
 test('consent signing secret is mandatory', () => {
   assert.throws(() => createConsentIdentityBinding('short'), /at least 32/);
 });
+
+test('consent binding rejects oversized and noncanonical encoded input', async () => {
+  const token = await binding.issue('provider-handle', alice);
+  assert.equal(await binding.verify('a'.repeat(2049), alice), null);
+  assert.equal(await binding.verify(token + '.', alice), null);
+  assert.equal(await binding.verify(token.replace('.', '=' + '.'), alice), null);
+  assert.equal(await binding.verify(token.split('.')[0] + '.AAAA', alice), null);
+  await assert.rejects(() => binding.issue('a'.repeat(1025), alice), /Invalid provider consent handle/);
+});
