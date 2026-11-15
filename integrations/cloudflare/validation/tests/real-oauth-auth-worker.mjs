@@ -26,6 +26,16 @@ async function handleAuthorization(request, env) {
   if (env.TEST_ENABLE_AUTHORIZATION !== 'enabled-for-local-tests-only') {
     return new Response('Disabled', { status: 403 });
   }
+  // Miniflare's getWorker() proxy rejects Origin headers before workerd.
+  // This test-only shim reconstructs the browser Origin inside the worker;
+  // the production authorization handler still validates it unchanged.
+  if (request.method === 'POST' &&
+      request.headers.get('X-Test-Local-Origin') === 'enabled-for-local-tests-only') {
+    const headers = new Headers(request.headers);
+    headers.delete('X-Test-Local-Origin');
+    headers.set('Origin', new URL(request.url).origin);
+    request = new Request(request, { headers });
+  }
   const response = await consentWorker.fetch(request, env);
   if (request.method === 'POST' && response.status === 403) {
     const headers = new Headers(response.headers);
