@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, randomBytes, generateKeyPairSync, verify as verifySignature } from 'node:crypto';
+import { createHash, createHmac, randomBytes, generateKeyPairSync, verify as verifySignature } from 'node:crypto';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
 import { createGatewayAssertionVerifier } from '../../../../build/gateway-assertion.js';
@@ -244,6 +244,31 @@ try {
       'tampered consent handle must be rejected before OAuth grant');
     assert.equal(rejected.headers.has('location'), false,
       'tampered consent must never redirect with an authorization code');
+  }
+  // A correctly signed but expired or overlong-lived consent binding must
+  // be rejected by the real authorization Worker before the OAuth provider
+  // consumes the original browser-bound handle.
+  const consentClaims = JSON.parse(Buffer.from(signedPayload, 'base64url').toString('utf8'));
+  const signTestConsent = expires => {
+    const payload = Buffer.from(JSON.stringify({ ...consentClaims, expires })).toString('base64url');
+    const mac = createHmac('sha256', 'isolated-test-consent-secret-not-for-production-2026')
+      .update(payload).digest('base64url');
+    return payload + '.' + mac;
+  };
+  for (const [label, signedHandle] of [
+    ['expired', signTestConsent(Date.now() - 60000)],
+    ['excessive lifetime', signTestConsent(Date.now() + 3600000)],
+  ]) {
+    const rejected = await auth.fetch(issuer + '/authorize', {
+      method: 'POST', redirect: 'manual',
+      headers: { Cookie: [testSessionCookie, ...consentCookies].join('; '),
+        'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+        'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ handle: signedHandle, decision: 'approve' }),
+    });
+    assert.equal(rejected.status, 403, label + ' signed consent must be rejected');
+    assert.equal(rejected.headers.has('location'), false,
+      label + ' consent must not issue an authorization redirect');
   }
   const authorization = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
