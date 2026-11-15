@@ -150,6 +150,24 @@ try {
     'different authenticated identity must not deny an original user consent');
   assert.equal(switchedDenial.headers.has('location'), false,
     'unauthorized denial must not redirect to the OAuth client');
+  // A tampered denial handle must not consume the genuine provider consent.
+  // Reuse the actual browser cookie so this tests signature verification, not
+  // merely the provider's cross-browser protection.
+  const [denialPayload, denialMac] = denialHandle.split('.');
+  assert.ok(denialPayload && denialMac, 'denial consent handle is signed');
+  const forgedDenial = denialPayload + '.' +
+    (denialMac[0] === 'A' ? 'B' : 'A') + denialMac.slice(1);
+  const tamperedDenial = await auth.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: { Cookie: [testSessionCookie, ...denialCookies].join('; '),
+      'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+      'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle: forgedDenial, decision: 'deny' }),
+  });
+  assert.equal(tamperedDenial.status, 403,
+    'tampered denial handle must fail signature validation');
+  assert.equal(tamperedDenial.headers.has('location'), false,
+    'tampered denial must not redirect to the OAuth client');
   const denial = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
     headers: { Cookie: [testSessionCookie, ...denialCookies].join('; '),
