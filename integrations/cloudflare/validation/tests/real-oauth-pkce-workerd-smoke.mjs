@@ -128,7 +128,12 @@ try {
       'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ handle: consentHandle, decision: 'approve' }),
   });
-  assert.equal(authorization.status, 302, 'explicit consent authorization code redirect: ' + await authorization.clone().text());
+  assert.equal(authorization.status, 302, 'explicit consent authorization code redirect: ' +
+    await authorization.clone().text() + ' diagnostic=' + JSON.stringify({
+      requestOrigin: authorization.headers.get('X-Test-Request-Origin'),
+      originHeader: authorization.headers.get('X-Test-Origin-Header'),
+      hostHeader: authorization.headers.get('X-Test-Host-Header'),
+    }));
   const callback = new URL(authorization.headers.get('location'));
   assert.equal(callback.origin + callback.pathname, redirectUri);
   assert.equal(callback.searchParams.get('state'), state);
