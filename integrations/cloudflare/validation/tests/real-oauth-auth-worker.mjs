@@ -20,7 +20,9 @@ const consentWorker = createConsentAuthorizationWorker({
   verifySession: async (token, env) =>
     env.TEST_ENABLE_AUTHORIZATION === 'enabled-for-local-tests-only' &&
     token === env.TEST_SESSION_TOKEN
-      ? { id: 'test-user', issuer: 'https://test-idp.example.invalid' } : null,
+      ? { id: 'test-user', issuer: 'https://test-idp.example.invalid' }
+      : token === env.TEST_OTHER_SESSION_TOKEN
+        ? { id: 'other-user', issuer: 'https://test-idp.example.invalid' } : null,
 });
 async function handleAuthorization(request, env) {
   if (env.TEST_ENABLE_AUTHORIZATION !== 'enabled-for-local-tests-only') {
