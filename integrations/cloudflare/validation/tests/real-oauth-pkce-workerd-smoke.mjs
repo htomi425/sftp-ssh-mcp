@@ -188,6 +188,32 @@ try {
     (switchedUserConsent instanceof Error ? switchedUserConsent.message :
       switchedUserConsent.status + ' ' + (switchedUserConsent.headers.get('location') ?? '') +
       ' ' + await switchedUserConsent.clone().text()));
+  // The real OAuth authorization endpoint must reject modified signed consent
+  // payloads, even when the browser and authenticated user are both valid.
+  const [signedPayload, signedMac] = consentHandle.split('.');
+  assert.ok(signedPayload && signedMac, 'consent handle has signed binding');
+  const alteredClaims = JSON.parse(Buffer.from(signedPayload, 'base64url').toString('utf8'));
+  alteredClaims.subject = 'other-user';
+  const alteredPayload = Buffer.from(JSON.stringify(alteredClaims)).toString('base64url');
+  const tamperedHandles = [
+    alteredPayload + '.' + signedMac,
+    signedPayload + '.' + (signedMac[0] === 'A' ? 'B' : 'A') + signedMac.slice(1),
+    consentHandle + '.extra',
+    'A'.repeat(2049),
+  ];
+  for (const tamperedHandle of tamperedHandles) {
+    const rejected = await auth.fetch(issuer + '/authorize', {
+      method: 'POST', redirect: 'manual',
+      headers: { Cookie: [testSessionCookie, ...consentCookies].join('; '),
+        'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+        'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ handle: tamperedHandle, decision: 'approve' }),
+    });
+    assert.equal(rejected.status, tamperedHandle.length > 2048 ? 400 : 403,
+      'tampered consent handle must be rejected before OAuth grant');
+    assert.equal(rejected.headers.has('location'), false,
+      'tampered consent must never redirect with an authorization code');
+  }
   const authorization = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
     headers: { Cookie: [testSessionCookie, ...consentCookies].join('; '),
