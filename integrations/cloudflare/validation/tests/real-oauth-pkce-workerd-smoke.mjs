@@ -117,6 +117,8 @@ try {
     headers: { Cookie: testSessionCookie }, redirect: 'manual',
   });
   assert.equal(consentResponse.status, 200, 'real provider must render consent before grant');
+  const consentCookies = consentResponse.headers.getSetCookie().map(value => value.split(';', 1)[0]);
+  assert.ok(consentCookies.length > 0, 'OAuth provider must bind consent to browser cookie');
   const consentHtml = await consentResponse.text();
   assert.match(consentHtml, /value="approve"/);
   assert.match(consentHtml, /value="deny"/);
@@ -124,7 +126,7 @@ try {
   assert.ok(consentHandle, 'real provider consent handle');
   const authorization = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
-    headers: { Cookie: testSessionCookie,
+    headers: { Cookie: [testSessionCookie, ...consentCookies].join('; '),
       'X-Test-Local-Origin': 'enabled-for-local-tests-only',
       'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ handle: consentHandle, decision: 'approve' }),
