@@ -160,6 +160,17 @@ try {
       originHeader: authorization.headers.get('X-Test-Origin-Header'),
       hostHeader: authorization.headers.get('X-Test-Host-Header'),
     }));
+  // The consent handle is single-use: replaying approval must not issue a second code.
+  const replayedConsent = await auth.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: { Cookie: [testSessionCookie, ...consentCookies].join('; '),
+      'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+      'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle: consentHandle, decision: 'approve' }),
+  }).catch(error => error);
+  assert.ok(replayedConsent instanceof Error ||
+    (replayedConsent.status !== 302 && replayedConsent.status !== 200),
+    'replayed consent handle must not issue another authorization');
   const callback = new URL(authorization.headers.get('location'));
   assert.equal(callback.origin + callback.pathname, redirectUri);
   assert.equal(callback.searchParams.get('state'), state);
