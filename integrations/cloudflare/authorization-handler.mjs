@@ -5,7 +5,7 @@
  * renderConsent MUST render an explicit approval/denial UI with a server-issued
  * consent handle. Never infer approval from a GET or user-supplied identity.
  */
-export function createAuthorizationHandler({ getOAuthApi, authenticateUser, renderConsent }) {
+export function createAuthorizationHandler({ getOAuthApi, authenticateUser, renderConsent, bindConsent }) {
   if (![getOAuthApi, authenticateUser, renderConsent].every(fn => typeof fn === 'function')) {
     throw new Error('OAuth API, trusted user authentication and consent renderer required');
   }
@@ -41,7 +41,8 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
         const authRequest = await oauth.parseAuthRequest(request);
         const details = await oauth.describeConsent(authRequest);
         const consent = await oauth.beginConsent(authRequest);
-        return renderConsent({ request, user, details, consent });
+        const bound = bindConsent ? await bindConsent.issue(consent.handle, user, env) : consent.handle;
+        return renderConsent({ request, user, details, consent: { ...consent, handle: bound } });
       }
       // No grant without a valid CSRF-protected consent handle from provider.
       const form = await request.formData();
@@ -53,14 +54,16 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
       if (typeof handle !== 'string' || !handle || handle.length > 2048) {
         return new Response('Invalid consent handle', { status: 400 });
       }
+      const providerHandle = bindConsent ? await bindConsent.verify(handle, user, env) : handle;
+      if (!providerHandle) return new Response('Consent identity mismatch', { status: 403 });
       const decision = form.get('decision');
       if (decision === 'deny') {
-        const denied = await oauth.denyConsent(request, handle);
+        const denied = await oauth.denyConsent(request, providerHandle);
         return new Response(null, { status: 302, headers: denied.headers });
       }
       if (decision !== 'approve') return new Response('Invalid consent decision', { status: 400 });
       // Scope is selected by the provider's stored request, not POST form data.
-      const approved = await oauth.approveConsent(request, handle, {
+      const approved = await oauth.approveConsent(request, providerHandle, {
         scope: ['mcp:invoke'],
       });
       if (!approved?.request || !Array.isArray(approved.request.scope) ||
