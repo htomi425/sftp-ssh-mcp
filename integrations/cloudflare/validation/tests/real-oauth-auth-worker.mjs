@@ -17,6 +17,7 @@ const authorizationServer = new OAuthAuthorizationServer({
 // Real deployments must supply an independent IdP-backed verifier.
 const consentWorker = createConsentAuthorizationWorker({
   authorizationServer,
+  consentSigningSecret: 'isolated-test-consent-secret-not-for-production-2026',
   verifySession: async (token, env) =>
     env.TEST_ENABLE_AUTHORIZATION === 'enabled-for-local-tests-only' &&
     token === env.TEST_SESSION_TOKEN
