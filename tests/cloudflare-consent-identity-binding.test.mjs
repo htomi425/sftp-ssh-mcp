@@ -52,3 +52,24 @@ test('consent binding rejects oversized and noncanonical encoded input', async (
   assert.equal(await binding.verify(token.split('.')[0] + '.AAAA', alice), null);
   await assert.rejects(() => binding.issue('a'.repeat(1025), alice), /Invalid provider consent handle/);
 });
+
+test('consent identity binding rejects missing and malformed signed claims', async () => {
+  const valid = {
+    handle: 'opaque-provider-handle', issuer: alice.issuer,
+    subject: alice.id, expires: Date.now() + 60000,
+  };
+  for (const name of ['handle', 'issuer', 'subject', 'expires']) {
+    const claims = { ...valid };
+    delete claims[name];
+    assert.equal(await binding.verify(signed(claims), alice), null,
+      'missing ' + name + ' must be rejected');
+  }
+  for (const [name, value] of [
+    ['handle', null], ['handle', 123], ['handle', ''],
+    ['issuer', null], ['subject', null],
+    ['expires', null], ['expires', 'future'], ['expires', 1.5],
+  ]) {
+    assert.equal(await binding.verify(signed({ ...valid, [name]: value }), alice), null,
+      'invalid ' + name + ' must be rejected');
+  }
+});
