@@ -26,14 +26,15 @@ async function handleAuthorization(request, env) {
   if (env.TEST_ENABLE_AUTHORIZATION !== 'enabled-for-local-tests-only') {
     return new Response('Disabled', { status: 403 });
   }
-  if (request.method === 'POST') {
-    console.log('OAuth consent request origin diagnostic', JSON.stringify({
-      urlOrigin: new URL(request.url).origin,
-      originHeader: request.headers.get('Origin'),
-      hostHeader: request.headers.get('Host'),
-    }));
+  const response = await consentWorker.fetch(request, env);
+  if (request.method === 'POST' && response.status === 403) {
+    const headers = new Headers(response.headers);
+    headers.set('X-Test-Request-Origin', new URL(request.url).origin);
+    headers.set('X-Test-Origin-Header', request.headers.get('Origin') ?? '(missing)');
+    headers.set('X-Test-Host-Header', request.headers.get('Host') ?? '(missing)');
+    return new Response(response.body, { status: response.status, headers });
   }
-  return consentWorker.fetch(request, env);
+  return response;
 }
 
 export class AuthServer extends WorkerEntrypoint {
