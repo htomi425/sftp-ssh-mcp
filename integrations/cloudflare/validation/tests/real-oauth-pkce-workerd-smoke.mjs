@@ -122,6 +122,11 @@ try {
   assert.match(consentHtml, /value="deny"/);
   const consentHandle = consentHtml.match(/name="handle" value="([^"]+)"/)?.[1];
   assert.ok(consentHandle, 'real provider consent handle');
+  const originProbe = await auth.fetch(issuer + '/unrelated-origin-probe', {
+    method: 'POST', headers: { Origin: issuer, 'Content-Type': 'text/plain' }, body: 'probe',
+  });
+  assert.notEqual(originProbe.status, 403,
+    'Miniflare Origin probe rejected before OAuth consent handler: ' + await originProbe.clone().text());
   const authorization = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
     headers: { Cookie: testSessionCookie, Origin: issuer,
