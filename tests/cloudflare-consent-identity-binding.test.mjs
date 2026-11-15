@@ -73,3 +73,17 @@ test('consent identity binding rejects missing and malformed signed claims', asy
       'invalid ' + name + ' must be rejected');
   }
 });
+
+test('consent identity binding rejects additional claims and malformed identity', async () => {
+  const valid = {
+    handle: 'opaque-provider-handle', issuer: alice.issuer,
+    subject: alice.id, expires: Date.now() + 60000,
+  };
+  assert.equal(await binding.verify(signed({ ...valid, role: 'admin' }), alice), null);
+  assert.equal(await binding.verify(signed([valid]), alice), null);
+  assert.equal(await binding.verify(signed({ ...valid, handle: 'x'.repeat(1025) }), alice), null);
+  await assert.rejects(() => binding.issue('valid', { issuer: '', id: 'alice' }),
+    /Invalid authenticated identity/);
+  await assert.rejects(() => binding.issue('valid', { issuer: alice.issuer, id: '' }),
+    /Invalid authenticated identity/);
+});
