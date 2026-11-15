@@ -137,6 +137,19 @@ try {
   const denialHtml = await denialConsent.text();
   const denialHandle = denialHtml.match(/name="handle" value="([^"]+)"/)?.[1];
   assert.ok(denialHandle, 'denial flow consent handle');
+  // Denial is also a state-changing consent decision: a different logged-in
+  // identity in the same browser must not consume another user's handle.
+  const switchedDenial = await auth.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: { Cookie: [otherSessionCookie, ...denialCookies].join('; '),
+      'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+      'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle: denialHandle, decision: 'deny' }),
+  });
+  assert.equal(switchedDenial.status, 403,
+    'different authenticated identity must not deny an original user consent');
+  assert.equal(switchedDenial.headers.has('location'), false,
+    'unauthorized denial must not redirect to the OAuth client');
   const denial = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
     headers: { Cookie: [testSessionCookie, ...denialCookies].join('; '),
