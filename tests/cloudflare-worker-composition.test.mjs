@@ -13,6 +13,7 @@ test('authorization Worker delegates discovery and exposes Service Binding token
   const worker = createAuthorizationWorker({
     authorizationServer: server,
     authenticateUser: async () => ({ id: 'alice', issuer: 'https://idp.example' }),
+    bindConsent: { issue: async handle => handle, verify: async handle => handle },
     renderConsent: async () => new Response('consent'),
   });
   assert.equal((await worker.fetch(new Request('https://auth.example/authorize'), {})).status, 200);
