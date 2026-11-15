@@ -15,6 +15,10 @@ function setup(user = { id: 'alice', issuer: 'https://login.example' }) {
   const handler = createAuthorizationHandler({
     getOAuthApi: () => oauth,
     authenticateUser: async () => user,
+    bindConsent: {
+      async issue(handle) { return handle; },
+      async verify(handle) { return handle; },
+    },
     renderConsent: async () => new Response('Consent required'),
   });
   return { handler, oauth, calls };
@@ -98,4 +102,16 @@ test('ambiguous or injected consent fields are rejected before approval', async 
     assert.equal(response.status, 400);
   }
   assert.deepEqual(calls, [], 'no ambiguous submission may reach OAuth approval');
+});
+
+test('authorization handler rejects missing or incomplete identity binding', () => {
+  const required = {
+    getOAuthApi: () => ({}),
+    authenticateUser: async () => ({ id: 'alice', issuer: 'https://login.example' }),
+    renderConsent: async () => new Response('Consent'),
+  };
+  assert.throws(() => createAuthorizationHandler(required), /identity binding is required/);
+  assert.throws(() => createAuthorizationHandler({
+    ...required, bindConsent: { issue: async handle => handle },
+  }), /identity binding is required/);
 });
