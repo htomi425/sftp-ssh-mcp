@@ -78,7 +78,11 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
         scope: ['mcp:invoke'],
         props: { userId: user.id, issuer: user.issuer },
       });
-      return Response.redirect(redirectTo, 302);
+      // Preserve the OAuth provider's response headers (including consent
+      // cookie updates) when redirecting to the validated OAuth client.
+      const headers = new Headers(approved.headers);
+      headers.set('Location', redirectTo);
+      return new Response(null, { status: 302, headers });
     },
   };
 }
