@@ -9,7 +9,7 @@ function setup(user = { id: 'alice', issuer: 'https://login.example' }) {
     async describeConsent() { calls.push('describe'); return {}; },
     async beginConsent() { calls.push('begin'); return { handle: 'opaque' }; },
     async denyConsent() { calls.push('deny'); return { headers: new Headers({ Location: 'https://client.example/denied' }) }; },
-    async approveConsent(_req, handle, opts) { calls.push(['approve', handle, opts.scope]); return { request: { scope: ['mcp:invoke'] } }; },
+    async approveConsent(_req, handle, opts) { calls.push(['approve', handle, opts.scope]); return { request: { scope: ['mcp:invoke'] }, headers: new Headers({ 'Set-Cookie': '__Host-oauth_consent=; Path=/; Secure; HttpOnly; Max-Age=0', 'Cache-Control': 'no-store' }) }; },
     async completeAuthorization(opts) { calls.push(['complete', opts]); return { redirectTo: 'https://client.example/callback?code=ok' }; },
   };
   const handler = createAuthorizationHandler({
@@ -38,6 +38,9 @@ test('explicit approval uses stored request and trusted user identity', async ()
   const { handler, calls } = setup();
   const response = await handler.fetch(post('approve'), {});
   assert.equal(response.status, 302);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  assert.match(response.headers.get('Set-Cookie') ?? '', /Max-Age=0/);
+  assert.equal(response.headers.get('Location'), 'https://client.example/callback?code=ok');
   const completed = calls.find(c => Array.isArray(c) && c[0] === 'complete')[1];
   assert.equal(completed.userId, 'alice');
   assert.deepEqual(completed.scope, ['mcp:invoke']);
