@@ -9,6 +9,10 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
   if (![getOAuthApi, authenticateUser, renderConsent].every(fn => typeof fn === 'function')) {
     throw new Error('OAuth API, trusted user authentication and consent renderer required');
   }
+  if (!bindConsent || typeof bindConsent.issue !== 'function' ||
+      typeof bindConsent.verify !== 'function') {
+    throw new Error('OAuth consent identity binding is required');
+  }
   return {
     async fetch(request, env) {
       const url = new URL(request.url);
@@ -41,7 +45,7 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
         const authRequest = await oauth.parseAuthRequest(request);
         const details = await oauth.describeConsent(authRequest);
         const consent = await oauth.beginConsent(authRequest);
-        const bound = bindConsent ? await bindConsent.issue(consent.handle, user, env) : consent.handle;
+        const bound = await bindConsent.issue(consent.handle, user, env);
         return renderConsent({ request, user, details, consent: { ...consent, handle: bound } });
       }
       // No grant without a valid CSRF-protected consent handle from provider.
@@ -54,7 +58,7 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
       if (typeof handle !== 'string' || !handle || handle.length > 2048) {
         return new Response('Invalid consent handle', { status: 400 });
       }
-      const providerHandle = bindConsent ? await bindConsent.verify(handle, user, env) : handle;
+      const providerHandle = await bindConsent.verify(handle, user, env);
       if (!providerHandle) return new Response('Consent identity mismatch', { status: 403 });
       const decision = form.get('decision');
       if (decision === 'deny') {
