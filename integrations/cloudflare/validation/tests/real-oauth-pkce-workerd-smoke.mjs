@@ -176,6 +176,10 @@ try {
     body: new URLSearchParams({ handle: denialHandle, decision: 'deny' }),
   });
   assert.equal(denial.status, 302, 'explicit denial must redirect to OAuth client');
+  // The provider may clear its browser-bound consent cookie on denial.
+  // Preserve that Set-Cookie rather than replacing its response with a bare redirect.
+  assert.ok(denial.headers.getSetCookie().length > 0,
+    'OAuth consent denial must preserve provider Set-Cookie headers');
   const deniedCallback = new URL(denial.headers.get('location'));
   assert.equal(deniedCallback.origin + deniedCallback.pathname, redirectUri);
   assert.equal(deniedCallback.searchParams.get('error'), 'access_denied');
