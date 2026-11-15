@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createConsentAuthorizationWorker } from '../integrations/cloudflare/consent-authorization-worker.mjs';
+import { createConsentAuthorizationWorker, createEnvConsentAuthorizationWorker } from '../integrations/cloudflare/consent-authorization-worker.mjs';
 
 test('composed authorization Worker requires verified session and explicit consent', async () => {
   const calls = [];
@@ -83,4 +83,53 @@ test('consent Worker fails closed when identity-signing secret is missing or wea
   assert.throws(() => createConsentAuthorizationWorker({
     authorizationServer, verifySession, consentSigningSecret: 'unsafe',
   }), /Consent signing secret/);
+});
+
+test('runtime environment consent secret is required for authorization but not OAuth discovery', async () => {
+  const token = 'v'.repeat(48);
+  const secret = 'environment-only-oauth-secret-test-2026-strong';
+  const calls = [];
+  const oauth = {
+    parseAuthRequest: async () => ({ scope: ['mcp:invoke'] }),
+    describeConsent: async () => ({ scope: ['mcp:invoke'] }),
+    beginConsent: async () => ({ handle: 'provider-handle',
+      headers: new Headers({ 'Set-Cookie': '__Host-consent=opaque; Secure; Path=/' }) }),
+    approveConsent: async (_req, handle) => {
+      calls.push(['approve', handle]);
+      return { request: { scope: ['mcp:invoke'] } };
+    },
+    completeAuthorization: async () => ({ redirectTo: 'https://client.example/callback?code=ok' }),
+  };
+  const server = {
+    getOAuthApi: () => oauth,
+    fetch: async () => new Response('discovery'),
+    validateToken: async () => ({ active: false }),
+  };
+  const worker = createEnvConsentAuthorizationWorker({
+    authorizationServer: server,
+    verifySession: async value => value === token
+      ? { id: 'alice', issuer: 'https://login.example' } : null,
+  });
+  const url = 'https://auth.example/authorize';
+  const get = new Request(url, { headers: { Cookie: '__Host-ssh_mcp_session=' + token } });
+  assert.equal((await worker.fetch(get, {})).status, 503);
+  assert.equal((await worker.fetch(get, { OAUTH_CONSENT_SIGNING_SECRET: 'short' })).status, 503);
+  assert.equal((await worker.fetch(new Request('https://auth.example/.well-known/oauth-authorization-server'), {})).status, 200);
+  const env = { OAUTH_CONSENT_SIGNING_SECRET: secret };
+  const consent = await worker.fetch(get, env);
+  assert.equal(consent.status, 200);
+  const handle = (await consent.text()).match(/name="handle" value="([^"]+)"/)?.[1];
+  assert.ok(handle && handle !== 'provider-handle');
+  const approved = await worker.fetch(new Request(url, {
+    method: 'POST',
+    headers: { Cookie: '__Host-ssh_mcp_session=' + token,
+      Origin: 'https://auth.example', 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle, decision: 'approve' }),
+  }), env);
+  assert.equal(approved.status, 302);
+  assert.deepEqual(calls, [['approve', 'provider-handle']]);
+  assert.equal((await worker.validateToken('resource', 'token', env)).active, false);
+  assert.throws(() => createEnvConsentAuthorizationWorker({
+    authorizationServer: server, verifySession: async () => null, secretBinding: '__proto__',
+  }), /binding name/);
 });
