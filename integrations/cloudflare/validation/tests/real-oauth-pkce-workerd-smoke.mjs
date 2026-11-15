@@ -30,6 +30,8 @@ const gatewayIssuer = 'https://gateway.example.invalid';
 const gatewayAudience = 'ssh-mcp-origin';
 const testSessionToken = 'S'.repeat(48);
 const testSessionCookie = '__Host-ssh_mcp_session=' + testSessionToken;
+const otherSessionToken = 'T'.repeat(48);
+const otherSessionCookie = '__Host-ssh_mcp_session=' + otherSessionToken;
 const mf = new Miniflare({
   workers: [
     {
@@ -57,7 +59,8 @@ const mf = new Miniflare({
       compatibilityDate: '2026-08-06', compatibilityFlags: ['nodejs_compat'],
       kvNamespaces: ['OAUTH_KV'],
       bindings: { TEST_ENABLE_AUTHORIZATION: 'enabled-for-local-tests-only',
-        TEST_SESSION_TOKEN: testSessionToken },
+        TEST_SESSION_TOKEN: testSessionToken,
+        TEST_OTHER_SESSION_TOKEN: otherSessionToken },
     },
     {
       name: 'other-audience', modules: true,
@@ -170,6 +173,18 @@ try {
   });
   assert.equal(loggedOutConsent.status, 401,
     'consent approval must require a live authenticated login session');
+  // Switching to a different valid identity in the same browser must not
+  // authorize the original user's pending consent.
+  const switchedUserConsent = await auth.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: { Cookie: [otherSessionCookie, ...consentCookies].join('; '),
+      'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+      'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle: consentHandle, decision: 'approve' }),
+  }).catch(error => error);
+  assert.ok(switchedUserConsent instanceof Error ||
+    (switchedUserConsent.status !== 302 && switchedUserConsent.status !== 200),
+    'consent initiated by one user must not be approved by a different logged-in user');
   const authorization = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
     headers: { Cookie: [testSessionCookie, ...consentCookies].join('; '),
