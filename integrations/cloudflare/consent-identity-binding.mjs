@@ -9,6 +9,8 @@ export function createConsentIdentityBinding(secret) {
   return {
     async issue(handle, user) {
       if (typeof handle !== 'string' || !handle || handle.length > 1024) throw new Error('Invalid provider consent handle');
+      if (typeof user?.issuer !== 'string' || !user.issuer ||
+          typeof user?.id !== 'string' || !user.id) throw new Error('Invalid authenticated identity');
       const payload = encode(encoder.encode(JSON.stringify({
         handle, issuer: user.issuer, subject: user.id, expires: Date.now() + 600000,
       })));
@@ -24,10 +26,15 @@ export function createConsentIdentityBinding(secret) {
         if (encode(decode(parts[0])) !== parts[0] || encode(decode(parts[1])) !== parts[1]) return null;
         if (!await crypto.subtle.verify('HMAC', await key, decode(parts[1]), encoder.encode(parts[0]))) return null;
         const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(decode(parts[0])));
-        if (payload.issuer !== user.issuer || payload.subject !== user.id ||
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
+          Object.keys(payload).length !== 4 ||
+          !['handle', 'issuer', 'subject', 'expires'].every(field => Object.hasOwn(payload, field)) ||
+          typeof payload.issuer !== 'string' || !payload.issuer ||
+          typeof payload.subject !== 'string' || !payload.subject ||
+          payload.issuer !== user.issuer || payload.subject !== user.id ||
           !Number.isSafeInteger(payload.expires) || payload.expires <= Date.now() ||
           payload.expires > Date.now() + 600000 ||
-          typeof payload.handle !== 'string' || !payload.handle) return null;
+          typeof payload.handle !== 'string' || !payload.handle || payload.handle.length > 1024) return null;
         return payload.handle;
       } catch { return null; }
     },
