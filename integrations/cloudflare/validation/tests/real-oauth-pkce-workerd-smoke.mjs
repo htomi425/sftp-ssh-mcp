@@ -147,6 +147,18 @@ try {
   assert.equal(deniedCallback.searchParams.get('error'), 'access_denied');
   assert.equal(deniedCallback.searchParams.get('state'), state);
   assert.equal(deniedCallback.searchParams.has('code'), false, 'denial must not issue a code');
+  // A stolen consent handle must not be usable from a different browser
+  // even when the user is authenticated with the same test login session.
+  const crossBrowserConsent = await auth.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: { Cookie: testSessionCookie,
+      'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+      'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle: consentHandle, decision: 'approve' }),
+  }).catch(error => error);
+  assert.ok(crossBrowserConsent instanceof Error ||
+    (crossBrowserConsent.status !== 302 && crossBrowserConsent.status !== 200),
+    'consent handle must be bound to the originating browser');
   const authorization = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
     headers: { Cookie: [testSessionCookie, ...consentCookies].join('; '),
