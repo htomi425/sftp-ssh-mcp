@@ -159,6 +159,17 @@ try {
   assert.ok(crossBrowserConsent instanceof Error ||
     (crossBrowserConsent.status !== 302 && crossBrowserConsent.status !== 200),
     'consent handle must be bound to the originating browser');
+  // Browser-bound consent must not bypass login: a missing authenticated
+  // session is rejected even when the provider's consent cookie is present.
+  const loggedOutConsent = await auth.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: { Cookie: consentCookies.join('; '),
+      'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+      'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle: consentHandle, decision: 'approve' }),
+  });
+  assert.equal(loggedOutConsent.status, 401,
+    'consent approval must require a live authenticated login session');
   const authorization = await auth.fetch(issuer + '/authorize', {
     method: 'POST', redirect: 'manual',
     headers: { Cookie: [testSessionCookie, ...consentCookies].join('; '),
