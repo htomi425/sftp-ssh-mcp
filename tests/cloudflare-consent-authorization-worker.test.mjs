@@ -69,3 +69,18 @@ test('composed authorization Worker requires verified session and explicit conse
   assert.deepEqual(completion.props, { userId: 'alice', issuer: 'https://login.example' });
   assert.deepEqual(completion.scope, ['mcp:invoke']);
 });
+
+test('consent Worker fails closed when identity-signing secret is missing or weak', () => {
+  const authorizationServer = {
+    getOAuthApi: () => ({}),
+    fetch: async () => new Response('provider endpoint'),
+    validateToken: async () => ({ active: false }),
+  };
+  const verifySession = async () => ({ id: 'alice', issuer: 'https://login.example' });
+  assert.throws(() => createConsentAuthorizationWorker({
+    authorizationServer, verifySession,
+  }), /Consent signing secret/);
+  assert.throws(() => createConsentAuthorizationWorker({
+    authorizationServer, verifySession, consentSigningSecret: 'unsafe',
+  }), /Consent signing secret/);
+});
