@@ -10,6 +10,7 @@ export function createAuthorizationWorker({
   authorizationServer,
   authenticateUser,
   renderConsent,
+  bindConsent,
 }) {
   if (!authorizationServer ||
       typeof authorizationServer.getOAuthApi !== 'function' ||
@@ -21,6 +22,7 @@ export function createAuthorizationWorker({
     getOAuthApi: env => authorizationServer.getOAuthApi(env),
     authenticateUser,
     renderConsent,
+    bindConsent,
   });
   return {
     async fetch(request, env, ctx) {
