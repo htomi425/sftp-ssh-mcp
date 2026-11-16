@@ -182,3 +182,35 @@ test('declared oversized consent POST is rejected before session verifier', asyn
   assert.equal(authentications, 0, 'oversized POST must not verify sessions');
   assert.equal(providerLookups, 0, 'oversized POST must not invoke OAuth provider');
 });
+
+test('oversized streaming consent POST is rejected before session verifier', async () => {
+  let authentications = 0;
+  let providerLookups = 0;
+  const handler = createAuthorizationHandler({
+    getOAuthApi() { providerLookups++; return {}; },
+    async authenticateUser() {
+      authentications++;
+      return { id: 'alice', issuer: 'https://login.example' };
+    },
+    bindConsent: { async issue(value) { return value; }, async verify(value) { return value; } },
+    renderConsent: async () => new Response('consent'),
+  });
+  const response = await handler.fetch(new Request('https://auth.example/authorize', {
+    method: 'POST',
+    headers: {
+      Origin: 'https://auth.example',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('handle=opaque&decision=approve&'));
+        controller.enqueue(new TextEncoder().encode('padding=' + 'x'.repeat(8192)));
+        controller.close();
+      },
+    }),
+    duplex: 'half',
+  }), {});
+  assert.equal(response.status, 413);
+  assert.equal(authentications, 0, 'oversized streaming body must not verify sessions');
+  assert.equal(providerLookups, 0, 'oversized streaming body must not invoke OAuth provider');
+});
