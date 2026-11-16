@@ -169,6 +169,33 @@ try {
     code_challenge: challenge, code_challenge_method: 'S256', scope: 'mcp:invoke',
     resource: resourceUrl, state,
   })) url.searchParams.set(key, value);
+  // Exercise the actual workerd-hosted authorization handler limits before
+  // creating or consuming a provider consent record.
+  const oversizedAuthorizationUrl = new URL(url);
+  oversizedAuthorizationUrl.searchParams.set('state', 'x'.repeat(8192));
+  const oversizedAuthorization = await auth.fetch(oversizedAuthorizationUrl, {
+    headers: { Cookie: testSessionCookie }, redirect: 'manual',
+  });
+  assert.equal(oversizedAuthorization.status, 414,
+    'real provider authorization must reject oversized GET queries');
+  assert.equal(oversizedAuthorization.headers.get('Cache-Control'), 'no-store');
+  assert.equal(oversizedAuthorization.headers.has('location'), false);
+
+  const oversizedApproval = await auth.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: {
+      Cookie: testSessionCookie,
+      'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      handle: 'not-a-valid-handle', decision: 'approve',
+      padding: 'x'.repeat(8192),
+    }),
+  });
+  assert.equal(oversizedApproval.status, 413,
+    'real provider authorization must reject oversized consent POST bodies');
+  assert.equal(oversizedApproval.headers.has('location'), false);
   const unauthenticated = await auth.fetch(url, { redirect: 'manual' });
   assert.equal(unauthenticated.status, 401, 'authorization requires verified login session');
   const consentResponse = await auth.fetch(url, {
