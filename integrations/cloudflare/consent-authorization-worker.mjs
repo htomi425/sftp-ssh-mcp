@@ -44,7 +44,17 @@ export function createEnvConsentAuthorizationWorker({
         return authorizationServer.fetch(request, env, ctx);
       }
       const secret = env?.[secretBinding];
-      if (typeof secret !== 'string' || secret.length < 32) {
+      // Require a canonical base64url representation of a 32-byte key.
+      // This validates the encoding and key size, not the quality of randomness.
+      let validSecret = typeof secret === 'string' && /^[A-Za-z0-9_-]{43}$/.test(secret);
+      if (validSecret) {
+        try {
+          const decoded = atob(secret.replace(/-/g, '+').replace(/_/g, '/') + '=');
+          validSecret = decoded.length === 32 &&
+            btoa(decoded).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_') === secret;
+        } catch { validSecret = false; }
+      }
+      if (!validSecret) {
         return new Response('Authorization service unavailable', { status: 503,
           headers: { 'Cache-Control': 'no-store' } });
       }
