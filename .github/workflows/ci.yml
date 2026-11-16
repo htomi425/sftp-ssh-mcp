@@ -10,7 +10,54 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect executable changes
+    runs-on: ubuntu-latest
+    outputs:
+      needs_ci: ${{ steps.filter.outputs.needs_ci }}
+    steps:
+      - name: Checkout full history for reliable PR and push diff
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Skip heavy tests only for documentation-only changes
+        id: filter
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          needs_ci=true
+          # A new branch or an unavailable comparison must not silently skip tests.
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] &&
+             [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] &&
+             [[ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]] &&
+             git cat-file -e "${BASE_SHA}^{commit}" &&
+             git cat-file -e "${HEAD_SHA}^{commit}"; then
+            git diff --no-renames --name-only -z "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/changed-paths"
+            doc_only=true
+            count=0
+            while IFS= read -r -d '' path; do
+              count=$((count + 1))
+              case "$path" in
+                README.md|README.ja.md|docs/*.md|integrations/cloudflare/README.md)
+                  echo "Documentation: $path" ;;
+                *)
+                  echo "Executable or unclassified change: $path"
+                  doc_only=false ;;
+              esac
+            done < "$RUNNER_TEMP/changed-paths"
+            if [[ "$doc_only" == true && "$count" -gt 0 ]]; then
+              needs_ci=false
+            fi
+          fi
+          echo "needs_ci=$needs_ci" >> "$GITHUB_OUTPUT"
+          echo "Run heavy CI: $needs_ci"
+
   build:
+    needs: changes
+    if: needs.changes.outputs.needs_ci == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -60,6 +107,8 @@ jobs:
 
 
   integration:
+    needs: changes
+    if: needs.changes.outputs.needs_ci == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -117,7 +166,8 @@ jobs:
         run: sudo cat "$RUNNER_TEMP/ssh-integration/sshd.log" || true
 
   cloudflare-oauth-provider:
-    if: github.ref == 'refs/heads/refactor/core' || github.head_ref == 'refactor/core'
+    needs: changes
+    if: needs.changes.outputs.needs_ci == 'true' && (github.ref == 'refs/heads/refactor/core' || github.head_ref == 'refactor/core')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
