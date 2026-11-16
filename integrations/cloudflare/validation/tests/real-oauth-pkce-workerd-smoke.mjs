@@ -310,7 +310,7 @@ try {
   const consentClaims = JSON.parse(Buffer.from(signedPayload, 'base64url').toString('utf8'));
   const signTestConsent = expires => {
     const payload = Buffer.from(JSON.stringify({ ...consentClaims, expires })).toString('base64url');
-    const mac = createHmac('sha256', testConsentSigningSecret)
+    const mac = createHmac('sha256', Buffer.from(testConsentSigningSecret, 'base64url'))
       .update(payload).digest('base64url');
     return payload + '.' + mac;
   };
