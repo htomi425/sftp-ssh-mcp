@@ -115,3 +115,28 @@ test('authorization handler rejects missing or incomplete identity binding', () 
     ...required, bindConsent: { issue: async handle => handle },
   }), /identity binding is required/);
 });
+
+test('oversized consent POST is rejected before reaching OAuth provider', async () => {
+  const { handler, calls } = setup();
+  const url = 'https://auth.example/authorize';
+  const headers = { Origin: 'https://auth.example',
+    'Content-Type': 'application/x-www-form-urlencoded' };
+  const oversizedBody = 'handle=opaque&decision=approve&padding=' + 'x'.repeat(8192);
+  const declared = await handler.fetch(new Request(url, {
+    method: 'POST', headers: { ...headers, 'Content-Length': String(oversizedBody.length) },
+    body: oversizedBody,
+  }), {});
+  assert.equal(declared.status, 413);
+  // The body stream has no Content-Length, but still must be bounded.
+  const chunked = await handler.fetch(new Request(url, {
+    method: 'POST', headers, body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('handle=opaque&decision=approve&'));
+        controller.enqueue(new TextEncoder().encode('x'.repeat(8192)));
+        controller.close();
+      },
+    }), duplex: 'half',
+  }), {});
+  assert.equal(chunked.status, 413);
+  assert.deepEqual(calls, [], 'oversized POST never invokes the provider');
+});
