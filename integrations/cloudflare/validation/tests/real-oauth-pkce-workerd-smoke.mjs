@@ -111,6 +111,20 @@ try {
     'real OAuth authorization must fail closed without consent HMAC secret');
   assert.equal(noSecretConsent.headers.get('Cache-Control'), 'no-store');
   assert.equal(noSecretConsent.headers.has('location'), false);
+  // A direct approval POST must also fail closed without a signing secret,
+  // independent of the GET consent-page path or supplied form handle.
+  const noSecretApproval = await authMissingSecret.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: { Cookie: testSessionCookie,
+      'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+      'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle: 'forged-provider-handle', decision: 'approve' }),
+  });
+  assert.equal(noSecretApproval.status, 503,
+    'direct OAuth approval must fail closed without HMAC secret');
+  assert.equal(noSecretApproval.headers.get('Cache-Control'), 'no-store');
+  assert.equal(noSecretApproval.headers.has('location'), false,
+    'missing-secret approval must not redirect to OAuth client');
   const noSecretDiscovery = await authMissingSecret.fetch(
     issuer + '/.well-known/oauth-authorization-server');
   assert.equal(noSecretDiscovery.status, 200,
