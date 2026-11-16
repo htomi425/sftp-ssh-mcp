@@ -87,3 +87,14 @@ test('consent identity binding rejects additional claims and malformed identity'
   await assert.rejects(() => binding.issue('valid', { issuer: alice.issuer, id: '' }),
     /Invalid authenticated identity/);
 });
+
+test('raw 32-byte consent key produces standard HMAC-SHA256', async () => {
+  const rawKey = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+  const rawBinding = createConsentIdentityBinding(rawKey);
+  const token = await rawBinding.issue('provider-handle', alice);
+  const [payload, mac] = token.split('.');
+  assert.equal(mac, createHmac('sha256', Buffer.from(rawKey))
+    .update(payload).digest('base64url'));
+  assert.equal(await rawBinding.verify(token, alice), 'provider-handle');
+  assert.equal(await rawBinding.verify(token, bob), null);
+});
