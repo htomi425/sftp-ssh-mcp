@@ -47,9 +47,11 @@ export function createEnvConsentAuthorizationWorker({
       // Require a canonical base64url representation of a 32-byte key.
       // This validates the encoding and key size, not the quality of randomness.
       let validSecret = typeof secret === 'string' && /^[A-Za-z0-9_-]{43}$/.test(secret);
+      let keyBytes;
       if (validSecret) {
         try {
           const decoded = atob(secret.replace(/-/g, '+').replace(/_/g, '/') + '=');
+          keyBytes = Uint8Array.from(decoded, char => char.charCodeAt(0));
           validSecret = decoded.length === 32 &&
             btoa(decoded).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_') === secret;
         } catch { validSecret = false; }
@@ -61,7 +63,7 @@ export function createEnvConsentAuthorizationWorker({
       const worker = createAuthorizationWorker({
         authorizationServer, authenticateUser: authenticated,
         renderConsent: renderOAuthConsent,
-        bindConsent: createConsentIdentityBinding(secret),
+        bindConsent: createConsentIdentityBinding(keyBytes),
       });
       return worker.fetch(request, env, ctx);
     },
