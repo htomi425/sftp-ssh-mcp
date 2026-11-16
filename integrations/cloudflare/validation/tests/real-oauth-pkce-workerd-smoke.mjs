@@ -65,6 +65,18 @@ const mf = new Miniflare({
         OAUTH_CONSENT_SIGNING_SECRET: testConsentSigningSecret },
     },
     {
+      // Isolated negative fixture: same real OAuth Worker, no consent HMAC secret.
+      name: 'auth-missing-secret', modules: true,
+      script: await bundle('./real-oauth-auth-worker.mjs'),
+      compatibilityDate: '2026-08-06', compatibilityFlags: ['nodejs_compat'],
+      kvNamespaces: ['OAUTH_KV'],
+      bindings: {
+        TEST_ENABLE_AUTHORIZATION: 'enabled-for-local-tests-only',
+        TEST_SESSION_TOKEN: testSessionToken,
+        TEST_OTHER_SESSION_TOKEN: otherSessionToken,
+      },
+    },
+    {
       name: 'other-audience', modules: true,
       script: await bundle('./provider-other-audience-worker.mjs'),
       compatibilityDate: '2026-08-06', compatibilityFlags: ['nodejs_compat'],
@@ -90,6 +102,19 @@ try {
   const restricted = await mf.getWorker('restricted');
   const otherAudience = await mf.getWorker('other-audience');
   const gateway = await mf.getWorker('gateway');
+  const authMissingSecret = await mf.getWorker('auth-missing-secret');
+  // A missing secret must not silently bypass consent subject binding.
+  const noSecretConsent = await authMissingSecret.fetch(issuer + '/authorize', {
+    headers: { Cookie: testSessionCookie }, redirect: 'manual',
+  });
+  assert.equal(noSecretConsent.status, 503,
+    'real OAuth authorization must fail closed without consent HMAC secret');
+  assert.equal(noSecretConsent.headers.get('Cache-Control'), 'no-store');
+  assert.equal(noSecretConsent.headers.has('location'), false);
+  const noSecretDiscovery = await authMissingSecret.fetch(
+    issuer + '/.well-known/oauth-authorization-server');
+  assert.equal(noSecretDiscovery.status, 200,
+    'provider discovery should remain available without consent HMAC secret');
   const metadataResponse = await auth.fetch(issuer + '/.well-known/oauth-authorization-server');
   assert.equal(metadataResponse.status, 200, 'authorization discovery');
   const metadata = await metadataResponse.json();
