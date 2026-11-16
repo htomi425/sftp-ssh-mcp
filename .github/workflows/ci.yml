@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - refactor/core
 
 permissions:
   contents: read
@@ -12,6 +13,9 @@ permissions:
 jobs:
   changes:
     name: Detect executable changes
+    # This branch uses push.before/after, which represents the newly pushed batch.
+    # Running the PR base diff here would rerun all tests for every documentation commit.
+    if: github.event_name != 'pull_request' || github.head_ref != 'refactor/core'
     runs-on: ubuntu-latest
     outputs:
       needs_ci: ${{ steps.filter.outputs.needs_ci }}
@@ -24,8 +28,8 @@ jobs:
         id: filter
         shell: bash
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.before || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.after || github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           needs_ci=true
