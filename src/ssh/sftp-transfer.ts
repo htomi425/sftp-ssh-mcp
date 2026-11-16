@@ -1,6 +1,7 @@
 import { createReadStream, createWriteStream } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { dirname, join, posix } from 'node:path';
 import { link } from 'node:fs/promises';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -55,7 +56,7 @@ function sftpStat(sftp: SFTPWrapper, path: string): Promise<boolean> {
 
 export async function uploadFile(sftp: SFTPWrapper, localPath: string, remotePath: string, options: TransferOptions = {}): Promise<void> {
   // Upload to a sibling path first, so a failed transfer never leaves a partial final file.
-  const tempPath = `${remotePath}.ssh-mcp-${randomUUID()}.part`;
+  const tempPath = posix.join(posix.dirname(remotePath), `.ssh-mcp-${randomUUID()}.part`);
   let created = false;
   try {
     if (await sftpStat(sftp, remotePath)) throw new Error('Remote destination already exists');
@@ -73,7 +74,7 @@ export async function uploadFile(sftp: SFTPWrapper, localPath: string, remotePat
 
 export async function downloadFile(sftp: SFTPWrapper, remotePath: string, localPath: string, options: TransferOptions = {}): Promise<void> {
   // Download into a unique temporary file. An atomic hard link protects existing destinations.
-  const tempPath = `${localPath}.ssh-mcp-${randomUUID()}.part`;
+  const tempPath = join(dirname(localPath), `.ssh-mcp-${randomUUID()}.part`);
   try {
     await boundedPipeline(sftp.createReadStream(remotePath), createWriteStream(tempPath, { flags: 'wx', mode: 0o600 }), options);
     await link(tempPath, localPath);

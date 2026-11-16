@@ -94,3 +94,38 @@ test('upload aborts a stalled SFTP destination on timeout and requests cleanup',
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('download supports a destination basename near the filesystem limit', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ssh-mcp-long-name-'));
+  try {
+    const local = join(dir, 'a'.repeat(224));
+    await downloadFile({ createReadStream: () => Readable.from(['long filename']) }, '/remote.txt', local);
+    assert.equal(await readFile(local, 'utf8'), 'long filename');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('upload stages long POSIX destination names in the same remote directory', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ssh-mcp-long-upload-'));
+  try {
+    const local = join(dir, 'source.txt');
+    await writeFile(local, 'long filename');
+    const remote = '/remote/subdir/' + 'a'.repeat(224);
+    let staged;
+    const sftp = {
+      stat: (_path, cb) => cb(Object.assign(new Error('not found'), { code: 2 })),
+      createWriteStream(path) {
+        staged = path;
+        assert.match(path, /^\/remote\/subdir\/\.ssh-mcp-[0-9a-f-]+\.part$/);
+        assert.ok(Buffer.byteLength(path.split('/').at(-1)) <= 255);
+        return new Writable({ write(_chunk, _encoding, cb) { cb(); } });
+      },
+      rename(from, to, cb) { assert.equal(from, staged); assert.equal(to, remote); cb(null); },
+      unlink: (_path, cb) => cb(null),
+    };
+    await uploadFile(sftp, local, remote);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

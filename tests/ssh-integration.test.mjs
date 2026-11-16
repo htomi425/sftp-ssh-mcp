@@ -81,10 +81,17 @@ test('real SSH: SFTP rejects oversized upload and removes staged remote file', {
     const sftp = await openSftp(client);
     const source = join(dir, 'oversized.txt');
     await writeFile(source, 'larger than four bytes');
+    let staged;
+    const createWriteStream = sftp.createWriteStream.bind(sftp);
+    sftp.createWriteStream = (path, options) => {
+      staged = path;
+      return createWriteStream(path, options);
+    };
     await assert.rejects(() => uploadFile(sftp, source, remote, { maxBytes: 4 }), /size limit/);
     await assert.rejects(() => downloadFile(sftp, remote, join(dir, 'missing.txt')), /No such file|ENOENT|not found/i);
     const files = await new Promise((resolve, reject) => sftp.readdir('/tmp', (err, list) => err ? reject(err) : resolve(list)));
-    assert.equal(files.some(entry => entry.filename.startsWith(remote.split('/').at(-1) + '.ssh-mcp-')), false);
+    assert.ok(staged, 'upload must create a staging path');
+    assert.equal(files.some(entry => entry.filename === staged.split('/').at(-1)), false);
   } finally {
     client.end();
     await rm(dir, { recursive: true, force: true });
@@ -154,4 +161,29 @@ test('real SSH: named targets select independent credentials and enforce host-ke
     denied.once('error', error => { denied.end(); reject(error); });
     denied.connect(rejectedConfig);
   }));
+});
+
+test('real SSH: long destination basenames survive upload and download', { skip: !enabled }, async () => {
+  const privateKey = await readFile(privateKeyPath);
+  const client = await connect(privateKey, createHostKeyVerifier(hostKeyHex));
+  const dir = await mkdtemp(join(tmpdir(), 'ssh-mcp-long-integration-'));
+  const remoteDir = '/tmp/ssh-mcp-long-' + process.pid + '-' + Date.now();
+  const remote = remoteDir + '/' + 'a'.repeat(224);
+  try {
+    await exec(client, 'mkdir ' + remoteDir);
+    const sftp = await openSftp(client);
+    const source = join(dir, 'source.txt');
+    const target = join(dir, 'b'.repeat(224));
+    await writeFile(source, 'long destination round trip');
+    await uploadFile(sftp, source, remote);
+    await downloadFile(sftp, remote, target);
+    assert.equal(await readFile(target, 'utf8'), 'long destination round trip');
+  } finally {
+    try {
+      await exec(client, 'rm -f ' + remote + '; rmdir ' + remoteDir);
+    } finally {
+      client.end();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
 });
