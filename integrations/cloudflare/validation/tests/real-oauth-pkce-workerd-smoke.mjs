@@ -28,11 +28,11 @@ const redirectUri = 'https://client.example.invalid/callback';
 const gatewayKeys = generateKeyPairSync('ed25519');
 const gatewayIssuer = 'https://gateway.example.invalid';
 const gatewayAudience = 'ssh-mcp-origin';
-const testSessionToken = 'S'.repeat(48);
+const testSessionToken = randomBytes(36).toString('base64url');
 const testSessionCookie = '__Host-ssh_mcp_session=' + testSessionToken;
-const otherSessionToken = 'T'.repeat(48);
+const otherSessionToken = randomBytes(36).toString('base64url');
 const otherSessionCookie = '__Host-ssh_mcp_session=' + otherSessionToken;
-const testConsentSigningSecret = Buffer.alloc(32, 0x63).toString('base64url');
+const testConsentSigningSecret = randomBytes(32).toString('base64url');
 const mf = new Miniflare({
   workers: [
     {
@@ -60,7 +60,9 @@ const mf = new Miniflare({
       compatibilityDate: '2026-08-06', compatibilityFlags: ['nodejs_compat'],
       kvNamespaces: ['OAUTH_KV'],
       bindings: { TEST_ENABLE_AUTHORIZATION: 'enabled-for-local-tests-only',
+        // nosemgrep: codacy.yaml.security.hard-coded-tokens -- Runtime value injected into an isolated test Worker, not a hardcoded token.
         TEST_SESSION_TOKEN: testSessionToken,
+        // nosemgrep: codacy.yaml.security.hard-coded-tokens -- Runtime value injected into an isolated test Worker, not a hardcoded token.
         TEST_OTHER_SESSION_TOKEN: otherSessionToken,
         OAUTH_CONSENT_SIGNING_SECRET: testConsentSigningSecret },
     },
@@ -72,7 +74,9 @@ const mf = new Miniflare({
       kvNamespaces: ['OAUTH_KV'],
       bindings: {
         TEST_ENABLE_AUTHORIZATION: 'enabled-for-local-tests-only',
+        // nosemgrep: codacy.yaml.security.hard-coded-tokens -- Runtime value injected into an isolated test Worker, not a hardcoded token.
         TEST_SESSION_TOKEN: testSessionToken,
+        // nosemgrep: codacy.yaml.security.hard-coded-tokens -- Runtime value injected into an isolated test Worker, not a hardcoded token.
         TEST_OTHER_SESSION_TOKEN: otherSessionToken,
       },
     },

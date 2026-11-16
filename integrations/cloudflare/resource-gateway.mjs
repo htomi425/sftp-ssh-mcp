@@ -104,6 +104,7 @@ export async function forwardVerifiedIdentity(request, env, identity, settings) 
     htm: request.method, htu: '/mcp', body_sha256: B64URL(digest),
   };
   // The origin identity policy must map gateway issuer + serialized upstream identity.
+  // nosemgrep: generic.secrets.gitleaks.private-key.private-key -- PEM armor matcher only; no key material is embedded here.
   const pem = env.GATEWAY_PRIVATE_KEY.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, '');
   const der = Uint8Array.from(atob(pem), char => char.charCodeAt(0));
   const key = await crypto.subtle.importKey('pkcs8', der, { name: 'Ed25519' }, false, ['sign']);
