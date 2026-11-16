@@ -1,4 +1,4 @@
-import { createConsentAuthorizationWorker } from '../../consent-authorization-worker.mjs';
+import { createEnvConsentAuthorizationWorker } from '../../consent-authorization-worker.mjs';
 import { OAuthAuthorizationServer } from '@cloudflare/workers-oauth-provider';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 
@@ -15,9 +15,8 @@ const authorizationServer = new OAuthAuthorizationServer({
 
 // Local-test-only trusted session verifier; NEVER deploy this entrypoint.
 // Real deployments must supply an independent IdP-backed verifier.
-const consentWorker = createConsentAuthorizationWorker({
+const consentWorker = createEnvConsentAuthorizationWorker({
   authorizationServer,
-  consentSigningSecret: 'isolated-test-consent-secret-not-for-production-2026',
   verifySession: async (token, env) =>
     env.TEST_ENABLE_AUTHORIZATION === 'enabled-for-local-tests-only' &&
     token === env.TEST_SESSION_TOKEN
