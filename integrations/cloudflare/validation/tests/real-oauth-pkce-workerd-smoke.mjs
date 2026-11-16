@@ -32,7 +32,7 @@ const testSessionToken = 'S'.repeat(48);
 const testSessionCookie = '__Host-ssh_mcp_session=' + testSessionToken;
 const otherSessionToken = 'T'.repeat(48);
 const otherSessionCookie = '__Host-ssh_mcp_session=' + otherSessionToken;
-const testConsentSigningSecret = 'isolated-test-consent-secret-not-for-production-2026';
+const testConsentSigningSecret = Buffer.alloc(32, 0x63).toString('base64url');
 const mf = new Miniflare({
   workers: [
     {
