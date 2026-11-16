@@ -196,6 +196,27 @@ try {
   assert.equal(oversizedApproval.status, 413,
     'real provider authorization must reject oversized consent POST bodies');
   assert.equal(oversizedApproval.headers.has('location'), false);
+  // Exercise the streamed-body path in workerd, not only the upfront
+  // Content-Length check. The test sends chunks without a length header.
+  const oversizedStreamApproval = await auth.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: {
+      Cookie: testSessionCookie,
+      'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('handle=invalid&decision=approve&'));
+        controller.enqueue(new TextEncoder().encode('padding=' + 'x'.repeat(8192)));
+        controller.close();
+      },
+    }),
+    duplex: 'half',
+  });
+  assert.equal(oversizedStreamApproval.status, 413,
+    'streaming consent POST must be bounded in the real workerd runtime');
+  assert.equal(oversizedStreamApproval.headers.has('location'), false);
   const unauthenticated = await auth.fetch(url, { redirect: 'manual' });
   assert.equal(unauthenticated.status, 401, 'authorization requires verified login session');
   const consentResponse = await auth.fetch(url, {
