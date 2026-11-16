@@ -114,7 +114,7 @@ test('runtime environment consent secret is required for authorization but not O
   const get = new Request(url, { headers: { Cookie: '__Host-ssh_mcp_session=' + token } });
   assert.equal((await worker.fetch(get, {})).status, 503);
   assert.equal((await worker.fetch(get, { OAUTH_CONSENT_SIGNING_SECRET: 'short' })).status, 503);
-  assert.equal((await worker.fetch(get, { OAUTH_CONSENT_SIGNING_SECRET: 'A'.repeat(43) })).status, 503,
+  assert.equal((await worker.fetch(get, { OAUTH_CONSENT_SIGNING_SECRET: 'A'.repeat(42) + 'B' })).status, 503,
     'noncanonical base64url must be rejected');
   assert.equal((await worker.fetch(get, { OAUTH_CONSENT_SIGNING_SECRET: 'x'.repeat(48) })).status, 503,
     'unencoded passphrase must be rejected');
