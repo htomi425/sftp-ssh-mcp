@@ -125,6 +125,20 @@ try {
   assert.equal(noSecretApproval.headers.get('Cache-Control'), 'no-store');
   assert.equal(noSecretApproval.headers.has('location'), false,
     'missing-secret approval must not redirect to OAuth client');
+  // Denial is a consent state transition as well: it must not reach the
+  // provider when the signing key is absent.
+  const noSecretDenial = await authMissingSecret.fetch(issuer + '/authorize', {
+    method: 'POST', redirect: 'manual',
+    headers: { Cookie: testSessionCookie,
+      'X-Test-Local-Origin': 'enabled-for-local-tests-only',
+      'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle: 'forged-provider-handle', decision: 'deny' }),
+  });
+  assert.equal(noSecretDenial.status, 503,
+    'direct OAuth denial must fail closed without HMAC secret');
+  assert.equal(noSecretDenial.headers.get('Cache-Control'), 'no-store');
+  assert.equal(noSecretDenial.headers.has('location'), false,
+    'missing-secret denial must not redirect to OAuth client');
   const noSecretDiscovery = await authMissingSecret.fetch(
     issuer + '/.well-known/oauth-authorization-server');
   assert.equal(noSecretDiscovery.status, 200,
