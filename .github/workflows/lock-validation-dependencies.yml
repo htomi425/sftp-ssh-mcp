@@ -21,6 +21,7 @@ jobs:
       - name: Resolve validation dependencies once and pin direct versions
         working-directory: integrations/cloudflare/validation
         run: |
+          npm pkg set 'overrides.sharp=0.35.5' 'overrides.undici=7.30.1'
           npm install --package-lock-only --ignore-scripts --no-audit --no-fund
           node --input-type=module <<'NODE'
           import {readFileSync,writeFileSync} from 'node:fs';
