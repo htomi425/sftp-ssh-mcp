@@ -79,7 +79,8 @@ export async function forwardVerifiedIdentity(request, env, identity, settings) 
         if (done) break;
         total += value.byteLength;
         if (total > limit) {
-          await reader.cancel().catch(() => {});
+          // Do not wait for an upstream or unread tee branch to finish cancellation.
+          void reader.cancel().catch(() => {});
           return json(413, 'body_too_large');
         }
         chunks.push(value);

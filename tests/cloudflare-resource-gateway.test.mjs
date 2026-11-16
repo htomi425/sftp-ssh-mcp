@@ -95,3 +95,34 @@ test('gateway rejects content-encoded requests before signing or forwarding', as
   assert.equal(response.status, 400);
   assert.equal(received.length, 0);
 });
+
+for (const mode of ['stalled-cancel', 'unread-tee']) {
+  test('oversized gateway body rejects promptly with ' + mode, { timeout: 3000 }, async () => {
+    const { env, received } = setup();
+    let cancelled = false;
+    let body = new ReadableStream({
+      start(controller) {
+        const chunk = new Uint8Array(1024 * 1024);
+        for (let count = 0; count < 17; count++) controller.enqueue(chunk);
+        // No EOF: rejection must not depend on the sender completing.
+      },
+      cancel() {
+        cancelled = true;
+        if (mode === 'stalled-cancel') return new Promise(() => {});
+      },
+    });
+    let unread;
+    if (mode === 'unread-tee') [body, unread] = body.tee();
+    try {
+      const request = new Request(resource, { method: 'POST', body, duplex: 'half' });
+      const response = await forwardVerifiedIdentity(request, env, {
+        issuer: 'https://idp.example', subject: 'alice', scopes: ['mcp:invoke'],
+      }, settings);
+      assert.equal(response.status, 413);
+      assert.equal(received.length, 0);
+      if (mode === 'stalled-cancel') assert.equal(cancelled, true);
+    } finally {
+      if (unread) await unread.cancel();
+    }
+  });
+}
