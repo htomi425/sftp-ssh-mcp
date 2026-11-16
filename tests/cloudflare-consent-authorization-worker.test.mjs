@@ -87,7 +87,7 @@ test('consent Worker fails closed when identity-signing secret is missing or wea
 
 test('runtime environment consent secret is required for authorization but not OAuth discovery', async () => {
   const token = 'v'.repeat(48);
-  const secret = 'environment-only-oauth-secret-test-2026-strong';
+  const secret = Buffer.alloc(32, 0x51).toString('base64url');
   const calls = [];
   const oauth = {
     parseAuthRequest: async () => ({ scope: ['mcp:invoke'] }),
@@ -114,6 +114,10 @@ test('runtime environment consent secret is required for authorization but not O
   const get = new Request(url, { headers: { Cookie: '__Host-ssh_mcp_session=' + token } });
   assert.equal((await worker.fetch(get, {})).status, 503);
   assert.equal((await worker.fetch(get, { OAUTH_CONSENT_SIGNING_SECRET: 'short' })).status, 503);
+  assert.equal((await worker.fetch(get, { OAUTH_CONSENT_SIGNING_SECRET: 'A'.repeat(43) })).status, 503,
+    'noncanonical base64url must be rejected');
+  assert.equal((await worker.fetch(get, { OAUTH_CONSENT_SIGNING_SECRET: 'x'.repeat(48) })).status, 503,
+    'unencoded passphrase must be rejected');
   assert.equal((await worker.fetch(new Request('https://auth.example/.well-known/oauth-authorization-server'), {})).status, 200);
   const env = { OAUTH_CONSENT_SIGNING_SECRET: secret };
   const consent = await worker.fetch(get, env);
@@ -159,8 +163,8 @@ test('rotating runtime consent secret rejects old handles and permits fresh cons
   });
   const endpoint = 'https://auth.example/authorize';
   const cookie = '__Host-ssh_mcp_session=' + session;
-  const oldEnvironment = { OAUTH_CONSENT_SIGNING_SECRET: 'old-isolated-rotation-test-secret-2026-abc' };
-  const newEnvironment = { OAUTH_CONSENT_SIGNING_SECRET: 'new-isolated-rotation-test-secret-2026-xyz' };
+  const oldEnvironment = { OAUTH_CONSENT_SIGNING_SECRET: Buffer.alloc(32, 0x52).toString('base64url') };
+  const newEnvironment = { OAUTH_CONSENT_SIGNING_SECRET: Buffer.alloc(32, 0x53).toString('base64url') };
   const getHandle = async env => {
     const response = await worker.fetch(new Request(endpoint, {
       headers: { Cookie: cookie },
@@ -217,8 +221,8 @@ test('independent authorization Worker instances reject consent signed by a diff
   };
   const workerA = createEnvConsentAuthorizationWorker(options);
   const workerB = createEnvConsentAuthorizationWorker(options);
-  const keyA = { OAUTH_CONSENT_SIGNING_SECRET: 'instance-a-consent-key-isolated-2026-test' };
-  const keyB = { OAUTH_CONSENT_SIGNING_SECRET: 'instance-b-consent-key-isolated-2026-test' };
+  const keyA = { OAUTH_CONSENT_SIGNING_SECRET: Buffer.alloc(32, 0x54).toString('base64url') };
+  const keyB = { OAUTH_CONSENT_SIGNING_SECRET: Buffer.alloc(32, 0x55).toString('base64url') };
   const url = 'https://auth.example/authorize';
   const headers = { Cookie: '__Host-ssh_mcp_session=' + token };
   const consent = await workerA.fetch(new Request(url, { headers }), keyA);
