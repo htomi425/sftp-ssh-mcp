@@ -77,7 +77,7 @@ export function createAuthenticatedHttpServer(policy: HttpAccessPolicy | Gateway
           const chunks: Buffer[] = [];
           let size = 0;
           await Promise.race([(async () => {
-          for await (const chunk of request) {
+          for await (const chunk of request.iterator({ destroyOnReturn: false })) {
             const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
             size += bytes.length;
             if (size > limits.maxBodyBytes) throw new HttpBodyTooLargeError();
@@ -87,6 +87,7 @@ export function createAuthenticatedHttpServer(policy: HttpAccessPolicy | Gateway
           raw = Buffer.concat(chunks, size);
         } catch (error) {
           if (controller.signal.aborted) throw error;
+          response.setHeader('Connection', 'close');
           response.writeHead(error instanceof HttpBodyTooLargeError ? 413 : 400).end();
           return;
         }

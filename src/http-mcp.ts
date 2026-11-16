@@ -30,7 +30,10 @@ export function createStreamableHttpHandler(factory: HttpMcpServerFactory) {
       try {
         parsedBody = await readBoundedJsonBody(request, maxBodyBytes);
       } catch (error) {
-        if (!response.headersSent) response.writeHead(error instanceof HttpBodyTooLargeError ? 413 : error instanceof HttpInvalidJsonError ? 400 : 500).end();
+        if (!response.headersSent) {
+          response.setHeader('Connection', 'close');
+          response.writeHead(error instanceof HttpBodyTooLargeError ? 413 : error instanceof HttpInvalidJsonError ? 400 : 500).end();
+        }
         return;
       }
     }

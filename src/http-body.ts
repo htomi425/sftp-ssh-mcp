@@ -15,7 +15,7 @@ export class HttpInvalidJsonError extends Error {
 export async function readBoundedJsonBody(request: IncomingMessage, maxBytes: number): Promise<unknown> {
   let size = 0;
   const chunks: Buffer[] = [];
-  for await (const chunk of request) {
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += bytes.length;
     if (size > maxBytes) throw new HttpBodyTooLargeError();

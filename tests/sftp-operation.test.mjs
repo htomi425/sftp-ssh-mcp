@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { generateKeyPairSync, createHash } from 'node:crypto';
-import { Server, utils } from 'ssh2';
+import ssh2 from 'ssh2';
+const { Server, utils } = ssh2;
 import { runSftpOperation } from '../build/ssh/sftp-operation.js';
 import { ConnectionGate } from '../build/ssh/resource-limits.js';
 import { createAuthenticatedHttpServer, listenLoopback } from '../build/http-server.js';
