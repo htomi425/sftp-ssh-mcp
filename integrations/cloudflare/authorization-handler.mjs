@@ -48,8 +48,41 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
         const bound = await bindConsent.issue(consent.handle, user, env);
         return renderConsent({ request, user, details, consent: { ...consent, handle: bound } });
       }
-      // No grant without a valid CSRF-protected consent handle from provider.
-      const form = await request.formData();
+      // Bound the consent body before invoking formData(): chunked requests
+      // without Content-Length must not consume unbounded Worker memory.
+      // Read a clone so the original provider request remains available.
+      const maxConsentBodyBytes = 8192;
+      const declaredLength = request.headers.get('Content-Length');
+      if (declaredLength !== null &&
+          (!/^[0-9]+$/.test(declaredLength) || Number(declaredLength) > maxConsentBodyBytes)) {
+        return new Response('Consent form too large', { status: 413 });
+      }
+      let form;
+      try {
+        const reader = request.clone().body?.getReader();
+        if (!reader) return new Response('Invalid consent form', { status: 400 });
+        let size = 0;
+        let oversized = false;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            size += value.byteLength;
+            if (size > maxConsentBodyBytes) {
+              oversized = true;
+              await reader.cancel().catch(() => {});
+              break;
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        if (oversized) return new Response('Consent form too large', { status: 413 });
+        // No grant without a valid CSRF-protected consent handle from provider.
+        form = await request.formData();
+      } catch {
+        return new Response('Invalid consent form', { status: 400 });
+      }
       if (form.getAll('handle').length !== 1 || form.getAll('decision').length !== 1 ||
           [...form.keys()].some(key => key !== 'handle' && key !== 'decision')) {
         return new Response('Invalid consent form', { status: 400 });
