@@ -7,6 +7,7 @@ import { formatDirectoryListing } from './ssh/directory-listing.js';
 import { sshConfigForTarget, type TargetRegistry } from './ssh/targets.js';
 import { resolveToolTarget, type ToolExecutionContext } from './tool-target.js';
 import { DEFAULT_EXEC_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, OutputLimiter } from './ssh/exec-limits.js';
+import { runSftpOperation } from './ssh/sftp-operation.js';
 import { uploadFile, downloadFile } from './ssh/sftp-transfer.js';
 import { ConnectionGate, parseBoundedInteger, DEFAULT_MAX_TRANSFER_BYTES, DEFAULT_TRANSFER_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_CONNECTIONS } from './ssh/resource-limits.js';
 
@@ -103,59 +104,21 @@ server.tool(
 
 // 执行 SFTP 命令
 async function execSftpCommand(sshConfig: any, action: string, ...args: any[]) {
-  return new Promise((resolve, reject) => {
-    let release: () => void;
-    try { release = connectionGate.acquire(); } catch (error) { reject(error); return; }
-    const conn = new SSHClient();
-    conn.once('close', release);
-    conn.on('ready', () => {
-      conn.sftp((err, sftp) => {
-        if (err) {
-          reject(new McpError(ErrorCode.InternalError, `SFTP error: ${err.message}`));
-          conn.end();
-          return;
-        }
-
-        switch (action) {
-          case 'upload': {
-            const [localPath, remotePath] = args as [string, string];
-            uploadFile(sftp, localPath, remotePath, transferOptions)
-              .then(() => { resolve(undefined); conn.end(); })
-              .catch((error) => { reject(error); conn.end(); });
-            break;
-          }
-          case 'download': {
-            const [remotePath, localPath] = args as [string, string];
-            downloadFile(sftp, remotePath, localPath, transferOptions)
-              .then(() => { resolve(undefined); conn.end(); })
-              .catch((error) => { reject(error); conn.end(); });
-            break;
-          }
-          case 'list': {
-            const [remotePath] = args;
-            sftp.readdir(remotePath, (err, list) => {
-              if (err) {
-                reject(new McpError(ErrorCode.InternalError, `List error: ${err.message}`));
-                conn.end();
-                return;
-              }
-              resolve(list);
-              conn.end();
-            });
-            break;
-          }
-          default:
-            reject(new McpError(ErrorCode.InternalError, 'Invalid SFTP action'));
-            conn.end();
-        }
-      });
-    });
-    conn.on('error', (err) => {
-      release();
-      reject(new McpError(ErrorCode.InternalError, `SFTP connection error: ${err.message}`));
-    });
-    try { conn.connect(sshConfig); } catch (error) { release(); reject(error); }
-  });
+  return runSftpOperation(sshConfig, connectionGate, transferOptions.timeoutMs, async conn => {
+    const sftp = await new Promise<import('ssh2').SFTPWrapper>((resolve, reject) =>
+      conn.sftp((error, channel) => error ? reject(error) : resolve(channel)));
+    switch (action) {
+      case 'upload':
+        return uploadFile(sftp, args[0], args[1], transferOptions);
+      case 'download':
+        return downloadFile(sftp, args[0], args[1], transferOptions);
+      case 'list':
+        return new Promise((resolve, reject) =>
+          sftp.readdir(args[0], (error, list) => error ? reject(error) : resolve(list)));
+      default:
+        throw new McpError(ErrorCode.InternalError, 'Invalid SFTP action');
+    }
+  }, context.signal);
 }
 
 server.tool(
@@ -186,12 +149,14 @@ async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: st
   return new Promise((resolve, reject) => {
     let release: () => void;
     try { release = connectionGate.acquire(); } catch (error) { reject(error); return; }
+    if (context.signal?.aborted) { release(); reject(context.signal.reason); return; }
     const conn = new SSHClient();
-    conn.once('close', release);
+    conn.once('close', () => finish(new Error('SSH connection closed before command completed')));
     const output = new OutputLimiter(DEFAULT_MAX_OUTPUT_BYTES);
     let stdout = '';
     let stderr = '';
     let settled = false;
+    const abort = () => finish(context.signal?.reason ?? new Error('SSH operation aborted'));
     const timer = setTimeout(() => {
       finish(new Error('SSH command timed out'));
     }, DEFAULT_EXEC_TIMEOUT_MS);
@@ -200,7 +165,8 @@ async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: st
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      conn.end();
+      context.signal?.removeEventListener('abort', abort);
+      conn.destroy();
       release();
       if (error) {
         reject(new McpError(ErrorCode.InternalError, error.message));
@@ -209,8 +175,12 @@ async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: st
       }
     }
 
+    context.signal?.addEventListener('abort', abort, { once: true });
+    if (context.signal?.aborted) { abort(); return; }
     conn.on('ready', () => {
+      if (settled) return;
       conn.exec(command, (err, stream) => {
+        if (settled) { stream?.close(); return; }
         if (err) {
           finish(err);
           return;

@@ -68,7 +68,7 @@ async function main() {
           parseIdentityTargetPolicy(process.env.SSH_MCP_IDENTITY_TARGETS, new Set(Object.keys(targets))),
         )
       : parseHttpAccessPolicy(process.env.SSH_MCP_HTTP_CREDENTIALS, new Set(Object.keys(targets)));
-    const handler = createStreamableHttpHandler(principal => createToolServer(targets, { principal }, 'http'));
+    const handler = createStreamableHttpHandler((principal, signal) => createToolServer(targets, { principal, signal }, 'http'));
     const http = createAuthenticatedHttpServer(policy, handler);
     const address = await listenLoopback(http, transportSettings.host, transportSettings.port);
     console.error(`SSH MCP Streamable HTTP listening on ${address.address}:${address.port} (auth: ${authMode}, not OAuth)`);

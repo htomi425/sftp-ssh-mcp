@@ -9,7 +9,7 @@ export interface HttpMcpServer {
   close(): Promise<void>;
 }
 
-export type HttpMcpServerFactory = (principal: HttpPrincipal) => HttpMcpServer;
+export type HttpMcpServerFactory = (principal: HttpPrincipal, signal?: AbortSignal) => HttpMcpServer;
 
 /**
  * Stateless MCP transport: a fresh server and transport for every request.
@@ -18,11 +18,12 @@ export type HttpMcpServerFactory = (principal: HttpPrincipal) => HttpMcpServer;
  */
 export function createStreamableHttpHandler(factory: HttpMcpServerFactory) {
   const { maxBodyBytes } = parseHttpRequestLimits(process.env);
-  return async ({ principal, request, response, parsedBody: preauthenticatedBody }: {
+  return async ({ principal, request, response, parsedBody: preauthenticatedBody, signal }: {
     principal: HttpPrincipal;
     request: IncomingMessage;
     response: ServerResponse;
     parsedBody?: unknown;
+    signal?: AbortSignal;
   }): Promise<void> => {
     let parsedBody: unknown = preauthenticatedBody;
     if (request.method === 'POST' && preauthenticatedBody === undefined) {
@@ -33,14 +34,21 @@ export function createStreamableHttpHandler(factory: HttpMcpServerFactory) {
         return;
       }
     }
-    const server = factory(principal);
+    signal?.throwIfAborted();
+    const server = factory(principal, signal);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    let closing: Promise<void> | undefined;
+    const close = () => closing ??= Promise.allSettled([transport.close(), server.close()]).then(() => undefined);
+    const abort = () => { void close(); };
+    signal?.addEventListener('abort', abort, { once: true });
     try {
+      signal?.throwIfAborted();
       await server.connect(transport);
+      signal?.throwIfAborted();
       await transport.handleRequest(request, response, parsedBody);
     } finally {
-      await transport.close();
-      await server.close();
+      signal?.removeEventListener('abort', abort);
+      await close();
     }
   };
 }

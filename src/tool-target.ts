@@ -4,6 +4,7 @@ import { selectTarget, type Target, type TargetRegistry } from './ssh/targets.js
 
 export interface ToolExecutionContext {
   principal?: HttpPrincipal;
+  signal?: AbortSignal;
 }
 
 /**

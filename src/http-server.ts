@@ -9,6 +9,7 @@ export interface HttpRequestContext {
   request: IncomingMessage;
   response: ServerResponse;
   parsedBody?: unknown;
+  signal: AbortSignal;
 }
 
 export interface GatewayHttpAuthenticator {
@@ -50,6 +51,21 @@ export function createAuthenticatedHttpServer(policy: HttpAccessPolicy | Gateway
     }
     let release: () => void;
     try { release = gate.acquire(); } catch { response.writeHead(503).end(); return; }
+    const controller = new AbortController();
+    const abort = () => controller.abort(new Error('HTTP client disconnected'));
+    const responseClosed = () => {
+      if (!response.writableFinished) abort();
+    };
+    request.once('aborted', abort);
+    response.once('close', responseClosed);
+    const timer = setTimeout(() => {
+      controller.abort(new Error('HTTP request execution timed out'));
+    }, limits.requestTimeoutMs);
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
+    });
+    // A cancellation during body reception may precede the race below.
+    void cancelled.catch(() => undefined);
     try {
       let principal: HttpPrincipal;
       let parsedBody: unknown;
@@ -60,14 +76,17 @@ export function createAuthenticatedHttpServer(policy: HttpAccessPolicy | Gateway
         try {
           const chunks: Buffer[] = [];
           let size = 0;
+          await Promise.race([(async () => {
           for await (const chunk of request) {
             const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
             size += bytes.length;
             if (size > limits.maxBodyBytes) throw new HttpBodyTooLargeError();
             chunks.push(bytes);
           }
+          })(), cancelled]);
           raw = Buffer.concat(chunks, size);
         } catch (error) {
+          if (controller.signal.aborted) throw error;
           response.writeHead(error instanceof HttpBodyTooLargeError ? 413 : 400).end();
           return;
         }
@@ -95,11 +114,22 @@ export function createAuthenticatedHttpServer(policy: HttpAccessPolicy | Gateway
           return;
         }
       }
-      await handler({ principal, request, response, parsedBody });
+      controller.signal.throwIfAborted();
+      await Promise.race([
+        handler({ principal, request, response, parsedBody, signal: controller.signal }),
+        cancelled,
+      ]);
     } catch {
-      if (!response.headersSent) response.writeHead(500).end();
+      if (!response.headersSent && !response.destroyed) response.writeHead(controller.signal.aborted ? 504 : 500).end();
       else response.destroy();
+      if (controller.signal.aborted && !request.complete) {
+        if (response.writableFinished || response.destroyed) request.destroy();
+        else response.once('finish', () => request.destroy());
+      }
     } finally {
+      clearTimeout(timer);
+      request.off('aborted', abort);
+      response.off('close', responseClosed);
       release();
     }
   });

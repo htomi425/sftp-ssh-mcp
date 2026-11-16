@@ -38,3 +38,37 @@ test('HTTP listener refuses public network binding', async () => {
   const server = createAuthenticatedHttpServer(policy, async () => {});
   await assert.rejects(() => listenLoopback(server, '0.0.0.0', 3000), /loopback/);
 });
+
+test('HTTP execution deadline cancels a stalled handler and frees the single request slot', { timeout: 10000 }, async () => {
+  const oldLimit = process.env.SSH_MCP_HTTP_MAX_REQUESTS;
+  const oldTimeout = process.env.SSH_MCP_HTTP_REQUEST_TIMEOUT_MS;
+  process.env.SSH_MCP_HTTP_MAX_REQUESTS = '1';
+  process.env.SSH_MCP_HTTP_REQUEST_TIMEOUT_MS = '1000';
+  let calls = 0;
+  let signal;
+  const server = createAuthenticatedHttpServer(policy, async context => {
+    calls++;
+    if (calls === 1) {
+      signal = context.signal;
+      await new Promise(() => {}); // The boundary must release even a noncooperating handler.
+    } else context.response.writeHead(200).end('next');
+  });
+  if (oldLimit === undefined) delete process.env.SSH_MCP_HTTP_MAX_REQUESTS;
+  else process.env.SSH_MCP_HTTP_MAX_REQUESTS = oldLimit;
+  if (oldTimeout === undefined) delete process.env.SSH_MCP_HTTP_REQUEST_TIMEOUT_MS;
+  else process.env.SSH_MCP_HTTP_REQUEST_TIMEOUT_MS = oldTimeout;
+  const { port } = await listenLoopback(server, '127.0.0.1', 0);
+  try {
+    const options = { method: 'POST', headers: { authorization: 'Bearer ' + token } };
+    const response = await fetch('http://127.0.0.1:' + port + '/mcp', options);
+    assert.equal(response.status, 504);
+    await response.text();
+    assert.equal(signal.aborted, true);
+    const next = await fetch('http://127.0.0.1:' + port + '/mcp', options);
+    assert.equal(next.status, 200);
+    assert.equal(await next.text(), 'next');
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
