@@ -214,3 +214,39 @@ test('oversized streaming consent POST is rejected before session verifier', asy
   assert.equal(authentications, 0, 'oversized streaming body must not verify sessions');
   assert.equal(providerLookups, 0, 'oversized streaming body must not invoke OAuth provider');
 });
+
+for (const stalledCancel of [false, true]) {
+  test('oversized open consent stream rejects without waiting for ' +
+    (stalledCancel ? 'upstream cancellation' : 'EOF'), { timeout: 3000 }, async () => {
+    let authentications = 0;
+    let providerLookups = 0;
+    let cancelled = false;
+    const handler = createAuthorizationHandler({
+      getOAuthApi() { providerLookups++; return {}; },
+      async authenticateUser() { authentications++; return { id: 'alice', issuer: 'https://login.example' }; },
+      bindConsent: { async issue(value) { return value; }, async verify(value) { return value; } },
+      renderConsent: async () => new Response('consent'),
+    });
+    const request = new Request('https://auth.example/authorize', {
+      method: 'POST',
+      headers: { Origin: 'https://auth.example', 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('handle=opaque&decision=approve&'));
+          controller.enqueue(new Uint8Array(8192));
+          // The sender deliberately never closes its body.
+        },
+        cancel() {
+          cancelled = true;
+          if (stalledCancel) return new Promise(() => {});
+        },
+      }),
+      duplex: 'half',
+    });
+    const response = await handler.fetch(request, {});
+    assert.equal(response.status, 413);
+    assert.equal(cancelled, true);
+    assert.equal(authentications, 0);
+    assert.equal(providerLookups, 0);
+  });
+}

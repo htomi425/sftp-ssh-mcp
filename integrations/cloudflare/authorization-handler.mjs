@@ -50,31 +50,36 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
           return new Response('Consent form too large', { status: 413 });
         }
       }
-      // Bound and parse the POST form before session verification.
-      // Read a clone so the original provider request remains available.
+      // Read once: a cloned/teed body can wait for an unread sibling when
+      // cancellation is awaited. Parse only the bytes accepted by this bound.
       let form;
       if (request.method === 'POST') try {
-        const reader = request.clone().body?.getReader();
+        const reader = request.body?.getReader();
         if (!reader) return new Response('Invalid consent form', { status: 400 });
+        const chunks = [];
         let size = 0;
-        let oversized = false;
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
             size += value.byteLength;
             if (size > maxConsentBodyBytes) {
-              oversized = true;
-              await reader.cancel().catch(() => {});
-              break;
+              // A stalled upstream cancellation must not delay the rejection.
+              void reader.cancel().catch(() => {});
+              return new Response('Consent form too large', { status: 413 });
             }
+            chunks.push(value);
           }
         } finally {
           reader.releaseLock();
         }
-        if (oversized) return new Response('Consent form too large', { status: 413 });
-        // No grant without a valid CSRF-protected consent handle from provider.
-        form = await request.formData();
+        const bytes = new Uint8Array(size);
+        let offset = 0;
+        for (const chunk of chunks) {
+          bytes.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        form = new URLSearchParams(new TextDecoder().decode(bytes));
       } catch {
         return new Response('Invalid consent form', { status: 400 });
       }

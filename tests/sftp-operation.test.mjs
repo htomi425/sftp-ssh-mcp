@@ -15,12 +15,14 @@ const fingerprint = createHash('sha256').update(utils.parseKey(key).getPublicSSH
 
 async function fixture() {
   const clients = new Set();
+  let closedResolve;
+  const closed = new Promise(resolve => { closedResolve = resolve; });
   let entered;
   const called = new Promise(resolve => { entered = resolve; });
   const ssh = new Server({ hostKeys: [key] }, client => {
     clients.add(client);
     client.on('error', () => {});
-    client.on('close', () => clients.delete(client));
+    client.on('close', () => { clients.delete(client); closedResolve(); });
     client.on('authentication', ctx => ctx.accept());
     client.on('ready', () => client.on('session', accept => {
       const session = accept();
@@ -35,7 +37,7 @@ async function fixture() {
   });
   await new Promise(resolve => ssh.listen(0, '127.0.0.1', resolve));
   const config = { host: '127.0.0.1', port: ssh.address().port, username: 'test', password: 'test', hostVerifier: () => true };
-  return { config, called, async close() {
+  return { config, called, closed, async close() {
     for (const client of clients) client.end();
     await new Promise(resolve => ssh.close(resolve));
   } };
@@ -60,6 +62,7 @@ for (const method of ['stat', 'rename', 'unlink', 'readdir']) {
       });
       await f.called;
       await assert.rejects(pending, /timed out/);
+      await f.closed;
       assert.equal(gate.activeCount, 0);
       assert.equal(await runSftpOperation(f.config, gate, 1000, async () => 'next operation'), 'next operation');
       assert.equal(gate.activeCount, 0);
@@ -95,6 +98,7 @@ test('HTTP disconnect cancels a real stalled SFTP list and releases both gates',
     controller.abort();
     await aborted;
     await pending;
+    await f.closed;
     // Retry after the close event has propagated to the HTTP request boundary.
     const response = await fetch(url, { method: 'POST', headers,
       body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) });
