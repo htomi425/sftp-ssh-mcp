@@ -1,0 +1,30 @@
+name: PR 10 Alpine compatibility validation
+
+on:
+  push:
+    branches: [validation/pr-10-alpine]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  alpine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated validation snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify application snapshot is unchanged from PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin 3351df8d71134bed7c496c9d330d6e16ade61ac3
+          git diff --exit-code 3351df8d71134bed7c496c9d330d6e16ade61ac3 HEAD -- src integrations tests package.json package-lock.json tsconfig.json
+      - name: Validate Alpine under CT-like CPU and memory limits
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --cpus=1 --memory=512m --memory-swap=1g --pids-limit=256 \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            alpine:3.24.4 sh /source/scripts/validate-alpine-ct200.sh
