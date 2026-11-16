@@ -29,6 +29,10 @@ jobs:
           HEAD_SHA: ${{ github.event.after || github.event.pull_request.head.sha || github.sha }}
           EVENT_NAME: ${{ github.event_name }}
           PR_ACTION: ${{ github.event.action || '' }}
+          BEFORE_SHA: ${{ github.event.before || '' }}
+          AFTER_SHA: ${{ github.event.after || '' }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
         run: |
           set -euo pipefail
           needs_ci=true
@@ -37,12 +41,12 @@ jobs:
           # fall back to the full PR diff. Only allow incremental skip when the
           # previous head is an ancestor; force-push/rebases require full CI.
           if [[ "$EVENT_NAME" == pull_request && "$PR_ACTION" == synchronize ]]; then
-            if [[ -n "${{ github.event.before }}" && -n "${{ github.event.after }}" ]] &&
+            if [[ -n "$BEFORE_SHA" && -n "$AFTER_SHA" ]] &&
                git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA" 2>/dev/null; then
               echo 'Checking PR synchronize delta'
             else
-              BASE_SHA='${{ github.event.pull_request.base.sha }}'
-              HEAD_SHA='${{ github.event.pull_request.head.sha }}'
+              BASE_SHA="$PR_BASE_SHA"
+              HEAD_SHA="$PR_HEAD_SHA"
               echo 'Checking full PR diff (missing or non-ancestor synchronize delta)'
             fi
           fi
