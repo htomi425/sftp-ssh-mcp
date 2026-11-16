@@ -158,3 +158,27 @@ test('normal OAuth GET query reaches consent flow', async () => {
   assert.equal(response.status, 200);
   assert.deepEqual(calls, ['parse', 'describe', 'begin']);
 });
+
+test('declared oversized consent POST is rejected before session verifier', async () => {
+  let authentications = 0;
+  let providerLookups = 0;
+  const handler = createAuthorizationHandler({
+    getOAuthApi() { providerLookups++; return {}; },
+    async authenticateUser() { authentications++; return { id: 'alice', issuer: 'https://login.example' }; },
+    bindConsent: { async issue(value) { return value; }, async verify(value) { return value; } },
+    renderConsent: async () => new Response('consent'),
+  });
+  const url = 'https://auth.example/authorize';
+  const response = await handler.fetch(new Request(url, {
+    method: 'POST',
+    headers: {
+      Origin: 'https://auth.example',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': '8193',
+    },
+    body: 'handle=opaque&decision=approve',
+  }), {});
+  assert.equal(response.status, 413);
+  assert.equal(authentications, 0, 'oversized POST must not verify sessions');
+  assert.equal(providerLookups, 0, 'oversized POST must not invoke OAuth provider');
+});
