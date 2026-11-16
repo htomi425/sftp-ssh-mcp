@@ -18,5 +18,7 @@ jobs:
           node-version: '24'
       - name: Install isolated provider package
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Reject known high-severity validation dependency vulnerabilities
+        run: npm audit --audit-level=high
       - name: Verify real v1 package imports and constructor
         run: npm run check:provider

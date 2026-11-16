@@ -209,6 +209,8 @@ jobs:
         working-directory: .
       - name: Install isolated Cloudflare OAuth Provider
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Reject known high-severity validation dependency vulnerabilities
+        run: npm audit --audit-level=high
       - name: Verify Cloudflare runtime-specific package imports with workerd-compatible bundler
         run: npm run check:provider
       - name: Verify OAuth resource server inside workerd
