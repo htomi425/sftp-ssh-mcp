@@ -133,3 +133,61 @@ test('runtime environment consent secret is required for authorization but not O
     authorizationServer: server, verifySession: async () => null, secretBinding: '__proto__',
   }), /binding name/);
 });
+
+test('rotating runtime consent secret rejects old handles and permits fresh consent', async () => {
+  const session = 'r'.repeat(48);
+  const issuer = 'https://login.example';
+  const calls = [];
+  const provider = {
+    parseAuthRequest: async () => ({ scope: ['mcp:invoke'] }),
+    describeConsent: async () => ({ scope: ['mcp:invoke'] }),
+    beginConsent: async () => ({ handle: 'opaque-provider-handle' }),
+    approveConsent: async (_request, handle) => {
+      calls.push(handle);
+      return { request: { scope: ['mcp:invoke'] } };
+    },
+    completeAuthorization: async () => ({ redirectTo: 'https://client.example/callback?code=ok' }),
+  };
+  const worker = createEnvConsentAuthorizationWorker({
+    authorizationServer: {
+      getOAuthApi: () => provider,
+      fetch: async () => new Response('discovery'),
+      validateToken: async () => ({ active: false }),
+    },
+    verifySession: async token => token === session
+      ? { id: 'alice', issuer } : null,
+  });
+  const endpoint = 'https://auth.example/authorize';
+  const cookie = '__Host-ssh_mcp_session=' + session;
+  const oldEnvironment = { OAUTH_CONSENT_SIGNING_SECRET: 'old-isolated-rotation-test-secret-2026-abc' };
+  const newEnvironment = { OAUTH_CONSENT_SIGNING_SECRET: 'new-isolated-rotation-test-secret-2026-xyz' };
+  const getHandle = async env => {
+    const response = await worker.fetch(new Request(endpoint, {
+      headers: { Cookie: cookie },
+    }), env);
+    assert.equal(response.status, 200);
+    const handle = (await response.text()).match(/name="handle" value="([^"]+)"/)?.[1];
+    assert.ok(handle);
+    return handle;
+  };
+  const postHandle = (handle, env) => worker.fetch(new Request(endpoint, {
+    method: 'POST',
+    headers: {
+      Cookie: cookie,
+      Origin: 'https://auth.example',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({ handle, decision: 'approve' }),
+  }), env);
+
+  const oldHandle = await getHandle(oldEnvironment);
+  const rejected = await postHandle(oldHandle, newEnvironment);
+  assert.equal(rejected.status, 403, 'old consent signature must fail after rotation');
+  assert.equal(rejected.headers.has('location'), false);
+  assert.deepEqual(calls, [], 'rejected consent must not reach OAuth Provider');
+
+  const newHandle = await getHandle(newEnvironment);
+  const approved = await postHandle(newHandle, newEnvironment);
+  assert.equal(approved.status, 302, 'new consent signature must remain usable');
+  assert.deepEqual(calls, ['opaque-provider-handle']);
+});
