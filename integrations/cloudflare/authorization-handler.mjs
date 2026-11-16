@@ -40,6 +40,16 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
       } else if (request.headers.has('Origin') && request.headers.get('Origin') !== url.origin) {
         return new Response('Forbidden', { status: 403 });
       }
+      // Reject known-oversized consent bodies before performing a potentially
+      // expensive trusted-session lookup. Streaming bodies are bounded below.
+      const maxConsentBodyBytes = 8192;
+      if (request.method === 'POST') {
+        const declaredLength = request.headers.get('Content-Length');
+        if (declaredLength !== null &&
+            (!/^[0-9]+$/.test(declaredLength) || Number(declaredLength) > maxConsentBodyBytes)) {
+          return new Response('Consent form too large', { status: 413 });
+        }
+      }
       // Must be backed by an authenticated session; no anonymous grants.
       const user = await authenticateUser(request, env);
       if (!user || typeof user.id !== 'string' || !user.id ||
@@ -57,12 +67,6 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
       // Bound the consent body before invoking formData(): chunked requests
       // without Content-Length must not consume unbounded Worker memory.
       // Read a clone so the original provider request remains available.
-      const maxConsentBodyBytes = 8192;
-      const declaredLength = request.headers.get('Content-Length');
-      if (declaredLength !== null &&
-          (!/^[0-9]+$/.test(declaredLength) || Number(declaredLength) > maxConsentBodyBytes)) {
-        return new Response('Consent form too large', { status: 413 });
-      }
       let form;
       try {
         const reader = request.clone().body?.getReader();
