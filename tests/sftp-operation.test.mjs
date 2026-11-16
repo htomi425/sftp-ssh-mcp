@@ -11,7 +11,7 @@ import { createToolServer } from '../build/tool-server.js';
 import { parseHttpAccessPolicy } from '../build/http-access.js';
 
 const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' });
-const fingerprint = createHash('sha256').update(utils.parseKey(key).getPublicSSHBuffer()).digest('hex');
+const fingerprint = createHash('sha256').update(utils.parseKey(key).getPublicSSH()).digest('hex');
 
 async function fixture() {
   const clients = new Set();
