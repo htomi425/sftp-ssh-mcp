@@ -191,3 +191,51 @@ test('rotating runtime consent secret rejects old handles and permits fresh cons
   assert.equal(approved.status, 302, 'new consent signature must remain usable');
   assert.deepEqual(calls, ['opaque-provider-handle']);
 });
+
+test('independent authorization Worker instances reject consent signed by a different key', async () => {
+  const token = 'k'.repeat(48);
+  const calls = [];
+  const oauth = {
+    parseAuthRequest: async () => ({ scope: ['mcp:invoke'] }),
+    describeConsent: async () => ({ scope: ['mcp:invoke'] }),
+    beginConsent: async () => ({ handle: 'shared-provider-consent-handle' }),
+    approveConsent: async (_request, handle) => {
+      calls.push(handle);
+      return { request: { scope: ['mcp:invoke'] } };
+    },
+    completeAuthorization: async () => ({ redirectTo: 'https://client.example/callback?code=ok' }),
+  };
+  const authorizationServer = {
+    getOAuthApi: () => oauth,
+    fetch: async () => new Response('provider'),
+    validateToken: async () => ({ active: false }),
+  };
+  const options = {
+    authorizationServer,
+    verifySession: async value => value === token
+      ? { id: 'alice', issuer: 'https://login.example' } : null,
+  };
+  const workerA = createEnvConsentAuthorizationWorker(options);
+  const workerB = createEnvConsentAuthorizationWorker(options);
+  const keyA = { OAUTH_CONSENT_SIGNING_SECRET: 'instance-a-consent-key-isolated-2026-test' };
+  const keyB = { OAUTH_CONSENT_SIGNING_SECRET: 'instance-b-consent-key-isolated-2026-test' };
+  const url = 'https://auth.example/authorize';
+  const headers = { Cookie: '__Host-ssh_mcp_session=' + token };
+  const consent = await workerA.fetch(new Request(url, { headers }), keyA);
+  assert.equal(consent.status, 200);
+  const handle = (await consent.text()).match(/name="handle" value="([^"]+)"/)?.[1];
+  assert.ok(handle);
+  const request = () => new Request(url, {
+    method: 'POST',
+    headers: { ...headers, Origin: 'https://auth.example',
+      'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle, decision: 'approve' }),
+  });
+  const rejected = await workerB.fetch(request(), keyB);
+  assert.equal(rejected.status, 403);
+  assert.equal(rejected.headers.has('location'), false);
+  assert.deepEqual(calls, []);
+  const accepted = await workerB.fetch(request(), keyA);
+  assert.equal(accepted.status, 302);
+  assert.deepEqual(calls, ['shared-provider-consent-handle']);
+});
