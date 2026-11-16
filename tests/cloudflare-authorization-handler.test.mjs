@@ -140,3 +140,21 @@ test('oversized consent POST is rejected before reaching OAuth provider', async 
   assert.equal(chunked.status, 413);
   assert.deepEqual(calls, [], 'oversized POST never invokes the provider');
 });
+
+test('oversized OAuth GET query is rejected before authentication and provider parsing', async () => {
+  const { handler, calls } = setup();
+  const url = 'https://auth.example/authorize?state=' + 'x'.repeat(8192);
+  const response = await handler.fetch(new Request(url), {});
+  assert.equal(response.status, 414);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  assert.deepEqual(calls, [], 'oversized query must not invoke OAuth provider');
+});
+
+test('normal OAuth GET query reaches consent flow', async () => {
+  const { handler, calls } = setup();
+  const response = await handler.fetch(new Request(
+    'https://auth.example/authorize?client_id=client&state=abc',
+  ), {});
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls, ['parse', 'describe', 'begin']);
+});
