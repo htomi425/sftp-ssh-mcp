@@ -19,6 +19,12 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
       if (url.pathname !== '/authorize' || !['GET', 'POST'].includes(request.method)) {
         return new Response('Not found', { status: 404 });
       }
+      // Bound the OAuth authorization request before session or provider work.
+      // Long query strings must not reach the OAuth parser or consent store.
+      if (request.method === 'GET' && url.search.length > 8192) {
+        return new Response('Authorization request URI too long', { status: 414,
+          headers: { 'Cache-Control': 'no-store' } });
+      }
       // Consent is a state-changing browser action. Require a same-origin
       // Origin header rather than relying on cookies or a caller-provided handle.
       // Never let malformed Origin values escape as an unhandled exception.
