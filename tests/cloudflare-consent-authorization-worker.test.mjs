@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createHmac } from 'node:crypto';
 import { createConsentAuthorizationWorker, createEnvConsentAuthorizationWorker } from '../integrations/cloudflare/consent-authorization-worker.mjs';
 
 test('composed authorization Worker requires verified session and explicit consent', async () => {
@@ -124,6 +125,13 @@ test('runtime environment consent secret is required for authorization but not O
   assert.equal(consent.status, 200);
   const handle = (await consent.text()).match(/name="handle" value="([^"]+)"/)?.[1];
   assert.ok(handle && handle !== 'provider-handle');
+  const [signedPayload, signedMac] = handle.split('.');
+  assert.equal(signedMac, createHmac('sha256', Buffer.from(secret, 'base64url'))
+    .update(signedPayload).digest('base64url'),
+    'environment secret must be decoded to 32 raw HMAC key bytes');
+  assert.notEqual(signedMac, createHmac('sha256', secret)
+    .update(signedPayload).digest('base64url'),
+    'UTF-8 bytes of the encoded secret are not the signing key');
   const approved = await worker.fetch(new Request(url, {
     method: 'POST',
     headers: { Cookie: '__Host-ssh_mcp_session=' + token,
