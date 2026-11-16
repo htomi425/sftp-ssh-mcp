@@ -208,7 +208,7 @@ jobs:
         run: npm run build
         working-directory: .
       - name: Install isolated Cloudflare OAuth Provider
-        run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Verify Cloudflare runtime-specific package imports with workerd-compatible bundler
         run: npm run check:provider
       - name: Verify OAuth resource server inside workerd
