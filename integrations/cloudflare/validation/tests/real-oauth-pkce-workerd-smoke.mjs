@@ -32,6 +32,7 @@ const testSessionToken = 'S'.repeat(48);
 const testSessionCookie = '__Host-ssh_mcp_session=' + testSessionToken;
 const otherSessionToken = 'T'.repeat(48);
 const otherSessionCookie = '__Host-ssh_mcp_session=' + otherSessionToken;
+const testConsentSigningSecret = 'isolated-test-consent-secret-not-for-production-2026';
 const mf = new Miniflare({
   workers: [
     {
@@ -60,7 +61,8 @@ const mf = new Miniflare({
       kvNamespaces: ['OAUTH_KV'],
       bindings: { TEST_ENABLE_AUTHORIZATION: 'enabled-for-local-tests-only',
         TEST_SESSION_TOKEN: testSessionToken,
-        TEST_OTHER_SESSION_TOKEN: otherSessionToken },
+        TEST_OTHER_SESSION_TOKEN: otherSessionToken,
+        OAUTH_CONSENT_SIGNING_SECRET: testConsentSigningSecret },
     },
     {
       name: 'other-audience', modules: true,
@@ -255,7 +257,7 @@ try {
   const consentClaims = JSON.parse(Buffer.from(signedPayload, 'base64url').toString('utf8'));
   const signTestConsent = expires => {
     const payload = Buffer.from(JSON.stringify({ ...consentClaims, expires })).toString('base64url');
-    const mac = createHmac('sha256', 'isolated-test-consent-secret-not-for-production-2026')
+    const mac = createHmac('sha256', testConsentSigningSecret)
       .update(payload).digest('base64url');
     return payload + '.' + mac;
   };
