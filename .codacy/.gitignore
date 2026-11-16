@@ -1,0 +1,4 @@
+generated/
+tmp/
+*.log
+codacy.config.baseline.json
