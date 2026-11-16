@@ -4,8 +4,12 @@ const decode = value => Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_
 
 /** Authenticated consent identity binding; separate from the provider's browser cookie. */
 export function createConsentIdentityBinding(secret) {
-  if (typeof secret !== 'string' || secret.length < 32) throw new Error('Consent signing secret must be at least 32 characters');
-  const key = crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+  const keyBytes = secret instanceof Uint8Array ? secret :
+    typeof secret === 'string' ? encoder.encode(secret) : null;
+  if (!keyBytes || keyBytes.length < 32) {
+    throw new Error('Consent signing secret must be at least 32 bytes');
+  }
+  const key = crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
   return {
     async issue(handle, user) {
       if (typeof handle !== 'string' || !handle || handle.length > 1024) throw new Error('Invalid provider consent handle');
