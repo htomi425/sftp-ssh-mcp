@@ -50,25 +50,10 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
           return new Response('Consent form too large', { status: 413 });
         }
       }
-      // Must be backed by an authenticated session; no anonymous grants.
-      const user = await authenticateUser(request, env);
-      if (!user || typeof user.id !== 'string' || !user.id ||
-          typeof user.issuer !== 'string' || !user.issuer) {
-        return new Response('Login required', { status: 401 });
-      }
-      const oauth = getOAuthApi(env);
-      if (request.method === 'GET') {
-        const authRequest = await oauth.parseAuthRequest(request);
-        const details = await oauth.describeConsent(authRequest);
-        const consent = await oauth.beginConsent(authRequest);
-        const bound = await bindConsent.issue(consent.handle, user, env);
-        return renderConsent({ request, user, details, consent: { ...consent, handle: bound } });
-      }
-      // Bound the consent body before invoking formData(): chunked requests
-      // without Content-Length must not consume unbounded Worker memory.
+      // Bound and parse the POST form before session verification.
       // Read a clone so the original provider request remains available.
       let form;
-      try {
+      if (request.method === 'POST') try {
         const reader = request.clone().body?.getReader();
         if (!reader) return new Response('Invalid consent form', { status: 400 });
         let size = 0;
@@ -92,6 +77,20 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
         form = await request.formData();
       } catch {
         return new Response('Invalid consent form', { status: 400 });
+      }
+      // Must be backed by an authenticated session; no anonymous grants.
+      const user = await authenticateUser(request, env);
+      if (!user || typeof user.id !== 'string' || !user.id ||
+          typeof user.issuer !== 'string' || !user.issuer) {
+        return new Response('Login required', { status: 401 });
+      }
+      const oauth = getOAuthApi(env);
+      if (request.method === 'GET') {
+        const authRequest = await oauth.parseAuthRequest(request);
+        const details = await oauth.describeConsent(authRequest);
+        const consent = await oauth.beginConsent(authRequest);
+        const bound = await bindConsent.issue(consent.handle, user, env);
+        return renderConsent({ request, user, details, consent: { ...consent, handle: bound } });
       }
       if (form.getAll('handle').length !== 1 || form.getAll('decision').length !== 1 ||
           [...form.keys()].some(key => key !== 'handle' && key !== 'decision')) {
