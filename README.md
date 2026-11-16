@@ -1,3 +1,5 @@
+[日本語README (refactor/core)](./README.ja.md)
+
 **SFTP-SSH MCP Server** is a local Model Context Protocol (MCP) server that exposes SFTP-SSH control for Linux and Windows systems, enabling LLMs and other MCP clients to execute shell commands securely via SSH.
 
 
