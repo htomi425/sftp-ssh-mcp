@@ -2,10 +2,10 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened]
   push:
     branches:
       - main
-      - refactor/core
 
 permissions:
   contents: read
@@ -13,9 +13,6 @@ permissions:
 jobs:
   changes:
     name: Detect executable changes
-    # This branch uses push.before/after, which represents the newly pushed batch.
-    # Running the PR base diff here would rerun all tests for every documentation commit.
-    if: github.event_name != 'pull_request' || github.head_ref != 'refactor/core'
     runs-on: ubuntu-latest
     outputs:
       needs_ci: ${{ steps.filter.outputs.needs_ci }}
@@ -30,9 +27,25 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.before || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.after || github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_ACTION: ${{ github.event.action || '' }}
         run: |
           set -euo pipefail
           needs_ci=true
+          # For PR synchronize, compare the newly pushed commits, not the entire PR.
+          # On PR open/reopen or if synchronize has no usable before/after pair,
+          # fall back to the full PR diff. Only allow incremental skip when the
+          # previous head is an ancestor; force-push/rebases require full CI.
+          if [[ "$EVENT_NAME" == pull_request && "$PR_ACTION" == synchronize ]]; then
+            if [[ -n "${{ github.event.before }}" && -n "${{ github.event.after }}" ]] &&
+               git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA" 2>/dev/null; then
+              echo 'Checking PR synchronize delta'
+            else
+              BASE_SHA='${{ github.event.pull_request.base.sha }}'
+              HEAD_SHA='${{ github.event.pull_request.head.sha }}'
+              echo 'Checking full PR diff (missing or non-ancestor synchronize delta)'
+            fi
+          fi
           # A new branch or an unavailable comparison must not silently skip tests.
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] &&
              [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] &&
