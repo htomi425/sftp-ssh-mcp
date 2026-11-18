@@ -73,14 +73,12 @@ test('Cloudflare-signed request reaches Node MCP and preserves per-identity targ
     for (const [name, args] of [
       ['exec', { target: 'beta', command: 'echo forbidden' }],
       ['sftp_list', { target: 'beta', remotePath: '/tmp' }],
-      ['sftp_upload', { target: 'beta', localPath: '/etc/passwd', remotePath: '/tmp/blocked' }],
-      ['sftp_download', { target: 'beta', remotePath: '/tmp/blocked', localPath: '/tmp/blocked' }],
     ]) {
       const result = await rpc('tools/call', { name, arguments: args });
       assert.equal(result.status, 200, name);
       assert.match(JSON.stringify(result.message), /access denied/i, name);
     }
-    assert.equal(forwarded.length, 5);
+    assert.equal(forwarded.length, 3);
     for (const request of forwarded) {
       assert.equal(request.headers.has('x-user'), false);
       assert.equal(request.headers.has('x-targets'), false);
@@ -88,9 +86,10 @@ test('Cloudflare-signed request reaches Node MCP and preserves per-identity targ
     }
     const unknown = await rpc('tools/list', {}, { ...identity, subject: 'mallory' });
     assert.equal(unknown.status, 401, 'unmapped upstream identity must be rejected at Node');
+    const countBeforeScopeFailure = forwarded.length;
     const scope = await rpc('tools/list', {}, { ...identity, scopes: [] });
     assert.equal(scope.status, 403, 'missing OAuth scope must be rejected at gateway');
-    assert.equal(forwarded.length, 6, 'scope failure must not reach origin');
+    assert.equal(forwarded.length, countBeforeScopeFailure, 'scope failure must not reach origin');
   } finally {
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }

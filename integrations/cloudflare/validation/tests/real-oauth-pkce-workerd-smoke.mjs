@@ -542,8 +542,6 @@ try {
     for (const [name, args] of [
       ['exec', { target: 'beta', command: 'echo forbidden' }],
       ['sftp_list', { target: 'beta', remotePath: '/tmp' }],
-      ['sftp_upload', { target: 'beta', localPath: '/etc/passwd', remotePath: '/tmp/blocked' }],
-      ['sftp_download', { target: 'beta', remotePath: '/etc/passwd', localPath: '/tmp/blocked' }],
     ]) {
       const deniedBody = JSON.stringify({ jsonrpc: '2.0', id: 12, method: 'tools/call',
         params: { name, arguments: args } });
@@ -562,7 +560,7 @@ try {
       assert.equal((await nodeRpc(deniedBody + ' ', deniedForward.assertion)).status, 401,
         name + ': Node rejects tampered OAuth gateway request');
     }
-    console.log('Real OAuth -> workerd gateway -> Node HTTP MCP initialize and all four tool target denials passed');
+    console.log('Real OAuth -> workerd gateway -> Node HTTP MCP initialize and both HTTP tool target denials passed');
   } finally {
     await new Promise((resolve, reject) => nodeServer.close(error => error ? reject(error) : resolve()));
   }

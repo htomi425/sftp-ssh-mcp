@@ -33,7 +33,7 @@ test('authorized HTTP principals cannot access server-local filesystem via SFTP 
       ['sftp_download', { target: 'alpha', remotePath: '/tmp/sensitive', localPath: '/tmp/sensitive' }],
     ]) {
       const result = await rpc('tools/call', { name, arguments: args });
-      assert.match(JSON.stringify(result), /HTTP local file transfer is disabled/i, name);
+      assert.match(JSON.stringify(result), /tool .* not found/i, name);
     }
   } finally {
     await new Promise((resolve, reject) => http.close(error => error ? reject(error) : resolve()));

@@ -26,56 +26,56 @@ const server = new McpServer({
   version: '1.0.5', // 服务器版本
 });
 
-// 实现 SFTP 上传工具
-server.tool(
-  "sftp_upload", // 工具名称
-  "Upload a file to remote server via SFTP", // 工具描述
-  { // 工具参数
-    target: z.string().optional().describe("Named SSH target"),
-    localPath: z.string().describe("Local file path to upload"),
-    remotePath: z.string().describe("Remote path to save the file"),
-  },
-  async ({ target, localPath, remotePath }) => { // 工具实现
-    try {
-      const selected = resolveToolTarget(targets, target, context, mode);
-      if (mode === 'http') throw new McpError(ErrorCode.InvalidRequest, 'HTTP local file transfer is disabled: server filesystem access is not permitted');
-      const sshConfig = await sshConfigForTarget(selected);
-      await execSftpCommand(sshConfig, 'upload', localPath, remotePath);
-      return {
-        content: [{ // 返回结果
-          type: 'text', // 结果类型
-          text: `File uploaded to ${remotePath}` // 结果文本
-        }]
-      };
-    } catch (err: any) {
-      if (err instanceof McpError) throw err;
-      throw new McpError(ErrorCode.InternalError, `Upload failed: ${err?.message || err}`);
+if (mode === 'stdio') {
+  // 实现 SFTP 上传工具
+  server.tool(
+    "sftp_upload", // 工具名称
+    "Upload a file to remote server via SFTP", // 工具描述
+    { // 工具参数
+      target: z.string().optional().describe("Named SSH target"),
+      localPath: z.string().describe("Local file path to upload"),
+      remotePath: z.string().describe("Remote path to save the file"),
+    },
+    async ({ target, localPath, remotePath }) => { // 工具实现
+      try {
+        const selected = resolveToolTarget(targets, target, context, mode);
+        const sshConfig = await sshConfigForTarget(selected);
+        await execSftpCommand(sshConfig, 'upload', localPath, remotePath);
+        return {
+          content: [{ // 返回结果
+            type: 'text', // 结果类型
+            text: `File uploaded to ${remotePath}` // 结果文本
+          }]
+        };
+      } catch (err: any) {
+        if (err instanceof McpError) throw err;
+        throw new McpError(ErrorCode.InternalError, `Upload failed: ${err?.message || err}`);
+      }
     }
-  }
-);
+  );
 
-// 实现 SFTP 下载工具
-server.tool(
-  "sftp_download",
-  "Download a file from remote server via SFTP",
-  {
-    target: z.string().optional().describe("Named SSH target"),
-    remotePath: z.string().describe("Remote file path to download"),
-    localPath: z.string().describe("Local path to save the file"),
-  },
-  async ({ target, remotePath, localPath }) => {
-    try {
-      const selected = resolveToolTarget(targets, target, context, mode);
-      if (mode === 'http') throw new McpError(ErrorCode.InvalidRequest, 'HTTP local file transfer is disabled: server filesystem access is not permitted');
-      const sshConfig = await sshConfigForTarget(selected);
-      await execSftpCommand(sshConfig, 'download', remotePath, localPath);
-      return { content: [{ type: 'text', text: `File downloaded to ${localPath}` }] };
-    } catch (err: any) {
-      if (err instanceof McpError) throw err;
-      throw new McpError(ErrorCode.InternalError, `Download failed: ${err?.message || err}`);
+  // 实现 SFTP 下载工具
+  server.tool(
+    "sftp_download",
+    "Download a file from remote server via SFTP",
+    {
+      target: z.string().optional().describe("Named SSH target"),
+      remotePath: z.string().describe("Remote file path to download"),
+      localPath: z.string().describe("Local path to save the file"),
+    },
+    async ({ target, remotePath, localPath }) => {
+      try {
+        const selected = resolveToolTarget(targets, target, context, mode);
+        const sshConfig = await sshConfigForTarget(selected);
+        await execSftpCommand(sshConfig, 'download', remotePath, localPath);
+        return { content: [{ type: 'text', text: `File downloaded to ${localPath}` }] };
+      } catch (err: any) {
+        if (err instanceof McpError) throw err;
+        throw new McpError(ErrorCode.InternalError, `Download failed: ${err?.message || err}`);
+      }
     }
-  }
-);
+  );
+}
 
 // 实现 SFTP 列表工具
 server.tool(

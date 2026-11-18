@@ -72,8 +72,6 @@ test('signed gateway identities enforce per-user SSH target permissions through 
       for (const [name, args] of [
         ['exec', { target: forbidden, command: 'echo should-not-execute' }],
         ['sftp_list', { target: forbidden, remotePath: '/tmp' }],
-        ['sftp_upload', { target: forbidden, localPath: '/etc/passwd', remotePath: '/tmp/blocked' }],
-        ['sftp_download', { target: forbidden, remotePath: '/etc/passwd', localPath: '/tmp/blocked' }],
       ]) {
         const result = await rpc(subject, 'tools/call', { name, arguments: args });
         assert.equal(result.status, 200, subject + ':' + name);

@@ -31,12 +31,10 @@ test('all HTTP MCP tools reject targets outside the authenticated principal scop
     const initialized = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'authz-test', version: '1' } });
     assert.equal(initialized.result.serverInfo.name, 'SSH MCP Server');
     const tools = await rpc('tools/list', {});
-    assert.deepEqual(tools.result.tools.map(x => x.name).sort(), ['exec', 'sftp_download', 'sftp_list', 'sftp_upload']);
+    assert.deepEqual(tools.result.tools.map(x => x.name).sort(), ['exec', 'sftp_list']);
     for (const [name, args] of [
       ['exec', { target: 'beta', command: 'echo must-not-run' }],
       ['sftp_list', { target: 'beta', remotePath: '/tmp' }],
-      ['sftp_upload', { target: 'beta', localPath: '/tmp/absent', remotePath: '/tmp/absent' }],
-      ['sftp_download', { target: 'beta', remotePath: '/tmp/absent', localPath: '/tmp/absent' }],
     ]) {
       const result = await rpc('tools/call', { name, arguments: args });
       assert.match(JSON.stringify(result), /access denied/i, name);

@@ -62,7 +62,7 @@ For multiple named hosts, configure `SSH_MCP_TARGETS` as a JSON object mapping t
 | `sftp_upload` | Upload a server-local file via SFTP | Enabled | Disabled |
 | `sftp_download` | Download a file to the server-local filesystem | Enabled | Disabled |
 
-HTTP file-transfer tools remain listed but reject invocation to prevent arbitrary access to the MCP server's own filesystem. Resource limits and no-overwrite SFTP upload handling are documented in [resource limits](./docs/resource-limits.md).
+HTTP advertises only `exec` and `sftp_list`. Resource limits and no-overwrite SFTP upload handling are documented in [resource limits](./docs/resource-limits.md).
 
 ## Streamable HTTP (opt-in; not OAuth by itself)
 

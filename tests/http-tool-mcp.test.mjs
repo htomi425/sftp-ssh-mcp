@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createAuthenticatedHttpServer, listenLoopback } from '../build/http-server.js';
 import { createStreamableHttpHandler } from '../build/http-mcp.js';
 import { parseHttpAccessPolicy } from '../build/http-access.js';
@@ -12,7 +14,7 @@ const registry = {
 const token = 'a'.repeat(48);
 const policy = parseHttpAccessPolicy(JSON.stringify([{ id: 'alice', token, targets: ['alpha'] }]), new Set(Object.keys(registry)));
 
-test('HTTP MCP exposes all shared SSH tools but rejects unauthorized target before connecting', async () => {
+test('HTTP MCP exposes exec and sftp_list but rejects unauthorized target before connecting', async () => {
   const server = createAuthenticatedHttpServer(policy, createStreamableHttpHandler(principal => createToolServer(registry, { principal }, 'http')));
   const { port } = await listenLoopback(server, '127.0.0.1', 0);
   let nextId = 0;
@@ -31,10 +33,25 @@ test('HTTP MCP exposes all shared SSH tools but rejects unauthorized target befo
     const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
     assert.equal(init.result.serverInfo.name, 'SSH MCP Server');
     const tools = await rpc('tools/list');
-    assert.deepEqual(tools.result.tools.map(tool => tool.name).sort(), ['exec', 'sftp_download', 'sftp_list', 'sftp_upload']);
+    assert.deepEqual(tools.result.tools.map(tool => tool.name).sort(), ['exec', 'sftp_list']);
     const denied = await rpc('tools/call', { name: 'exec', arguments: { target: 'beta', command: 'printf must-not-run' } });
     assert.match(JSON.stringify(denied), /access denied|Internal error|Unexpected error/i);
   } finally {
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('stdio MCP still exposes all four SSH tools', async () => {
+  const server = createToolServer(registry, {}, 'stdio');
+  const client = new Client({ name: 'test', version: '1' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  try {
+    await client.connect(clientTransport);
+    const { tools } = await client.listTools();
+    assert.deepEqual(tools.map(tool => tool.name).sort(), ['exec', 'sftp_download', 'sftp_list', 'sftp_upload']);
+  } finally {
+    await client.close();
+    await server.close();
   }
 });
