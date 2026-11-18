@@ -5,7 +5,11 @@
  * renderConsent MUST render an explicit approval/denial UI with a server-issued
  * consent handle. Never infer approval from a GET or user-supplied identity.
  */
-export function createAuthorizationHandler({ getOAuthApi, authenticateUser, renderConsent, bindConsent }) {
+function defaultGrant(user) {
+  return { userId: user.id, metadata: {}, props: { userId: user.id, issuer: user.issuer } };
+}
+
+export function createAuthorizationHandler({ getOAuthApi, authenticateUser, renderConsent, bindConsent, prepareGrant = defaultGrant }) {
   if (![getOAuthApi, authenticateUser, renderConsent].every(fn => typeof fn === 'function')) {
     throw new Error('OAuth API, trusted user authentication and consent renderer required');
   }
@@ -84,7 +88,13 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
         return new Response('Invalid consent form', { status: 400 });
       }
       // Must be backed by an authenticated session; no anonymous grants.
-      const user = await authenticateUser(request, env);
+      let user;
+      try {
+        user = await authenticateUser(request, env);
+      } catch {
+        return new Response('Authorization service unavailable', { status: 503,
+          headers: { 'Cache-Control': 'no-store' } });
+      }
       if (!user || typeof user.id !== 'string' || !user.id ||
           typeof user.issuer !== 'string' || !user.issuer) {
         return new Response('Login required', { status: 401 });
@@ -113,6 +123,14 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
         return new Response(null, { status: 302, headers: denied.headers });
       }
       if (decision !== 'approve') return new Response('Invalid consent decision', { status: 400 });
+      let grant;
+      try {
+        grant = await prepareGrant(user, env);
+      } catch {
+        return new Response('Authorization service unavailable', { status: 503,
+          headers: { 'Cache-Control': 'no-store' } });
+      }
+      if (!grant) return new Response('Login required', { status: 401 });
       // Scope is selected by the provider's stored request, not POST form data.
       const approved = await oauth.approveConsent(request, providerHandle, {
         scope: ['mcp:invoke'],
@@ -124,10 +142,8 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
       }
       const { redirectTo } = await oauth.completeAuthorization({
         request: approved.request,
-        userId: user.id,
-        metadata: {},
+        ...grant,
         scope: ['mcp:invoke'],
-        props: { userId: user.id, issuer: user.issuer },
       });
       // Preserve the OAuth provider's response headers (including consent
       // cookie updates) when redirecting to the validated OAuth client.

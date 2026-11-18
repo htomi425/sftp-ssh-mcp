@@ -11,6 +11,7 @@ export function createAuthorizationWorker({
   authenticateUser,
   renderConsent,
   bindConsent,
+  prepareGrant,
 }) {
   if (!authorizationServer ||
       typeof authorizationServer.getOAuthApi !== 'function' ||
@@ -23,6 +24,7 @@ export function createAuthorizationWorker({
     authenticateUser,
     renderConsent,
     bindConsent,
+    prepareGrant,
   });
   return {
     async fetch(request, env, ctx) {

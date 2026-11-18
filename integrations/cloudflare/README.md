@@ -12,7 +12,7 @@ The `ORIGIN` Service Binding must point to a private route reaching the Node.js 
 
 `oauth-provider-config.mjs` constructs the resource metadata and route options for the `@cloudflare/workers-oauth-provider` v1 split API, but **does not instantiate or deploy it**. The application must supply two distinct handlers: an authorization handler that calls `parseAuthRequest`, authenticates the human, obtains explicit consent, and only then calls `completeAuthorization`; and a protected API handler that obtains **verified provider token context**, checks `mcp:invoke`, and invokes the signed `forwardVerifiedIdentity` gateway after provider validation. The latter must not re-validate arbitrary bearer text using untrusted claims.
 
-Provider storage requires `OAUTH_KV`. CIMD requires `global_fetch_strictly_public` and a compatible Workers compatibility date. Keep `/authorize`, `/oauth/token`, metadata, and client registration reachable for OAuth discovery rather than accidentally blocking them with a separate Access browser login. Configure production secrets and a private Service Binding separately after review. The configuration-scaffold unit tests verify metadata and fail-closed requirements; separate Miniflare/workerd tests exercise real provider discovery, registration, consent, PKCE, resource validation, signed gateway assertions and a test-only Node origin bridge. They do not establish a real IdP login, production Tunnel reachability or token refresh behavior.
+Provider storage requires `OAUTH_KV`. CIMD requires `global_fetch_strictly_public` and a compatible Workers compatibility date. Protect the exact `/authorize` path with Access. Keep the authorization server metadata, token exchange, client registration and OAuth-protected resource available to MCP clients without an Access browser session. Configure production secrets and a private Service Binding separately after review. The configuration-scaffold unit tests verify metadata and fail-closed requirements; separate Miniflare/workerd tests exercise real provider discovery, registration, consent, PKCE, resource validation, signed gateway assertions and a test-only Node origin bridge. They do not establish a real IdP login, production Tunnel reachability or token refresh behavior.
 
 Reference: https://github.com/cloudflare/workers-oauth-provider (provider API and deployment prerequisites).
 
@@ -34,7 +34,7 @@ These modules use dependency injection so unit tests can run without Cloudflare 
 
 ## Isolated real-provider validation
 
-`validation/package.json` contains an independent dependency on `@cloudflare/workers-oauth-provider` v1. The main CI workflow also runs a `cloudflare-oauth-provider` job with bundling, real Miniflare/workerd provider flows, private Service Binding and OAuth-to-test-origin checks. The separate manually triggered `.github/workflows/cloudflare-oauth-validation.yml` is a legacy isolated validation workflow; do not treat its presence as evidence of deployment. Tests do not alter CT 200 or Cloudflare production settings. The dependency range is intentionally isolated; pin and lock it before deployment.
+`validation/package.json` contains an independent dependency on `@cloudflare/workers-oauth-provider` v1. The main CI workflow also runs a `cloudflare-oauth-provider` job with bundling, real Miniflare/workerd provider flows, private Service Binding and OAuth-to-test-origin checks. The separate manually triggered `.github/workflows/cloudflare-oauth-validation.yml` is a legacy isolated validation workflow; do not treat its presence as evidence of deployment. Tests do not alter CT 200 or Cloudflare production settings. The OAuth Provider version is pinned and locked in the isolated validation package.
 
 The passing Miniflare/workerd integration tests demonstrate the isolated provider flow, not a real upstream IdP session, browser interoperability, token refresh, Cloudflare Tunnel connectivity or deployment readiness. Deployment requires explicit approval.
 
@@ -50,3 +50,35 @@ The isolated real-provider/Miniflare PKCE tests now exercise explicit consent, d
 ### Environment-secret authorization composition
 
 For a Workers deployment, prefer `createEnvConsentAuthorizationWorker({ authorizationServer, verifySession })` over constructing a module-scope authorization Worker with a literal key. Its default secret-binding name is `OAUTH_CONSENT_SIGNING_SECRET`; configure that value as a **Workers secret**, never as a public variable or in source control. This wrapper reads the secret from the trusted Worker `env` on each `/authorize` request, requires canonical base64url encoding of exactly 32 bytes (43 characters), and responds with HTTP 503 and `Cache-Control: no-store` if it is absent or invalid. Discovery/token routes and the private `validateToken` Service Binding still delegate to the real OAuth provider. The login verifier remains supplied by the deployment and must validate an actual IdP-backed session. This convenience wrapper is not an entire deployable OAuth configuration.
+
+### Cloudflare Access login and grant lifetime
+
+Use `createAccessAuthorizationWorker({ OAuthAuthorizationServer, OAuthError, providerOptions, access })`
+with Workers OAuth Provider 1.2.4. Set `access.issuer` to the exact HTTPS team origin
+and `access.audience` to the protected application's AUD tag. Configure a user
+Access policy for the authorization path and use the existing
+`OAUTH_CONSENT_SIGNING_SECRET` and `OAUTH_KV` bindings. Export the class returned by
+`createOAuthSubjectState(DurableObject)` and bind it privately as
+`OAUTH_SUBJECT_STATE`. Point the resource Worker's private `AUTH_SERVER` binding
+at `createAuthorizationEntrypoint(WorkerEntrypoint, worker)` so resource requests
+use the same grant policy as token exchange.
+
+The Access assertion is verified with the team signing keys. The grant ends at
+the earlier of three days after approval or the signed Access expiry. Access
+tokens have a ten-minute maximum. Exchanges require at least 60 seconds
+remaining, which is the Provider's minimum token TTL. Resource validation uses
+the stored absolute grant expiry independently of OAuth KV expiry.
+
+Call `worker.setSubjectStopped(env, subject, stopped)` from trusted
+administration code. Stopping a subject invalidates their old generation before
+cleaning up matching OAuth KV grants. Retry the stop operation if KV cleanup
+fails. Re-enabling the subject requires a new consent grant. Use the signed
+Access `sub` as the subject and configure Node's identity mapping with the Access
+team issuer and that subject according to the existing gateway format.
+
+Run `npm run check:real-oauth-pkce --prefix integrations/cloudflare/validation`
+after building the repository and installing the isolated validation dependencies.
+The Access test uses locally signed JWTs and workerd with a separate authorization
+and resource Worker, private Service Bindings, shared Durable Object state and
+OAuth KV. Deployment manifests, real Access/IdP login and the production Tunnel
+route are tracked in the [session design](../../docs/cloudflare-oauth-session.md).

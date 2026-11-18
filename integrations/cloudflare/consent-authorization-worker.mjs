@@ -1,3 +1,5 @@
+import { createAccessAuthenticator } from './access-auth.mjs';
+import { createAccessGrantPolicy, setAccessSubjectStopped } from './access-grants.mjs';
 import { createAuthorizationWorker } from './authorization-worker.mjs';
 import { createSessionAuthenticator } from './session-auth.mjs';
 import { renderOAuthConsent } from './consent-ui.mjs';
@@ -27,11 +29,51 @@ export function createEnvConsentAuthorizationWorker({
   authorizationServer, verifySession, cookieName,
   secretBinding = 'OAUTH_CONSENT_SIGNING_SECRET',
 }) {
+  return createEnvConsentWorker({
+    authorizationServer, secretBinding,
+    authenticateUser: createSessionAuthenticator({ verifySession, cookieName }),
+  });
+}
+
+export function createAccessAuthorizationWorker({
+  OAuthAuthorizationServer, OAuthError, providerOptions,
+  access, secretBinding = 'OAUTH_CONSENT_SIGNING_SECRET',
+}) {
+  const policy = createAccessGrantPolicy({
+    authenticateAccessUser: createAccessAuthenticator(access), OAuthError,
+  });
+  const provider = new OAuthAuthorizationServer({
+    ...providerOptions,
+    refreshTokenIdleTTL: undefined,
+    tokenExchangeCallback: policy.tokenExchangeCallback,
+  });
+  const worker = createEnvConsentWorker({
+    authorizationServer: {
+      fetch: (request, env, ctx) => provider.fetch(request, env, ctx),
+      getOAuthApi: env => provider.getOAuthApi(env),
+      validateToken: (resource, token, env) => policy.validateToken(provider, resource, token, env),
+    },
+    authenticateUser: policy.authenticateUser,
+    prepareGrant: policy.prepareGrant,
+    secretBinding,
+  });
+  return {
+    ...worker,
+    setSubjectStopped(env, subject, stopped) {
+      if (typeof subject !== 'string' || !subject || subject.length > 512) {
+        throw new TypeError('Access subject required');
+      }
+      return setAccessSubjectStopped({
+        env, oauth: provider.getOAuthApi(env), issuer: access.issuer, subject, stopped,
+      });
+    },
+  };
+}
+
+function createEnvConsentWorker({ authorizationServer, authenticateUser, prepareGrant, secretBinding }) {
   if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(secretBinding)) {
     throw new Error('Invalid OAuth consent signing secret binding name');
   }
-  // Validate non-secret dependencies at construction.
-  const authenticated = createSessionAuthenticator({ verifySession, cookieName });
   if (!authorizationServer ||
       typeof authorizationServer.getOAuthApi !== 'function' ||
       typeof authorizationServer.fetch !== 'function' ||
@@ -61,7 +103,7 @@ export function createEnvConsentAuthorizationWorker({
           headers: { 'Cache-Control': 'no-store' } });
       }
       const worker = createAuthorizationWorker({
-        authorizationServer, authenticateUser: authenticated,
+        authorizationServer, authenticateUser, prepareGrant,
         renderConsent: renderOAuthConsent,
         bindConsent: createConsentIdentityBinding(keyBytes),
       });

@@ -16,7 +16,7 @@ export function createConsentIdentityBinding(secret) {
       if (typeof user?.issuer !== 'string' || !user.issuer ||
           typeof user?.id !== 'string' || !user.id) throw new Error('Invalid authenticated identity');
       const payload = encode(encoder.encode(JSON.stringify({
-        handle, issuer: user.issuer, subject: user.id, expires: Date.now() + 600000,
+        handle, issuer: user.issuer, subject: user.id, generation: user.generation, expires: Date.now() + 600000,
       })));
       const mac = encode(await crypto.subtle.sign('HMAC', await key, encoder.encode(payload)));
       return payload + '.' + mac;
@@ -31,11 +31,12 @@ export function createConsentIdentityBinding(secret) {
         if (!await crypto.subtle.verify('HMAC', await key, decode(parts[1]), encoder.encode(parts[0]))) return null;
         const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(decode(parts[0])));
         if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
-          Object.keys(payload).length !== 4 ||
+          Object.keys(payload).length !== (user.generation === undefined ? 4 : 5) ||
           !['handle', 'issuer', 'subject', 'expires'].every(field => Object.hasOwn(payload, field)) ||
           typeof payload.issuer !== 'string' || !payload.issuer ||
           typeof payload.subject !== 'string' || !payload.subject ||
           payload.issuer !== user.issuer || payload.subject !== user.id ||
+          payload.generation !== user.generation ||
           !Number.isSafeInteger(payload.expires) || payload.expires <= Date.now() ||
           payload.expires > Date.now() + 600000 ||
           typeof payload.handle !== 'string' || !payload.handle || payload.handle.length > 1024) return null;
