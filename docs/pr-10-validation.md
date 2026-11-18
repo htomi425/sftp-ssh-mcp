@@ -78,3 +78,13 @@ Cloudflare検証用の依存は完全バージョン・ロックファイル・n
 
 実CT・実IdP・実クライアントの検証とデプロイは引き続き保留。
 実環境へ進む受入条件は移行前に確認する。PRはDraftを維持し、mainは変更していない。
+
+## Cloudflare AccessとMCP OAuth付与の検証（2026-11-19）
+
+実行対象コミットは `03731901cfc519fbbcb03ce1edeecd052267f8e8`。 [CI #438](https://github.com/htomi425/sftp-ssh-mcp/actions/runs/44423348312) の5ジョブ、[Zod互換性](https://github.com/htomi425/sftp-ssh-mcp/actions/runs/44423340622) の2ジョブ、[Codacy](https://github.com/htomi425/sftp-ssh-mcp/runs/135222155762) が成功した。分離環境のNode.js 24では通常テストが131成功、7スキップ、0失敗。OpenSSH統合は専用CIジョブで成功した。
+
+- チームの公開鍵を使ったAccess JWT検証と鍵ローテーションを、テスト署名鍵とworkerdで確認した。期限切れ、署名・発行元・AUDの不一致、サービス認証、同意時の利用者切替を拒否した。
+- 実際のWorkers OAuth Provider 1.2.4でPKCEコード交換と更新トークンのローテーションを確認した。付与は最長3日かつAccessの期限まで。発行するアクセストークンは最長10分とし、付与の絶対期限をリソース検証でも照合する。
+- Durable Objectで主体を停止し、OAuth KVにトークンが残っていても別のWorkerからの利用を拒否した。状態ストア障害時のトークン交換・リソース処理の停止、再許可後の旧トークンと旧同意フォームの拒否を確認した。
+
+実際のCloudflare Access／IdP、Tunnel、ChatGPTでの動作は未検証。次は分離用のAccessアプリとWorkerを使い、ログイン・再認可・利用者切替およびNode側の接続先別認可を確認する。構成は[OAuthセッション設計](./cloudflare-oauth-session.md)を参照。
