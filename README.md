@@ -74,6 +74,10 @@ The optional Cloudflare implementation separates OAuth authorization and resourc
 
 ## Security
 
+On POSIX, HTTP mode requires a regular SSH private key file owned by the Node service user, with no group or other permissions (for example, `0600` or `0400`). Point `key` directly at the file and keep its parent directories writable only by trusted administrators or the service user. On Windows, restrict access using filesystem ACLs.
+
+If a service launcher reads the environment from a file, restrict that file to its authorized owner (`0600` on POSIX) and protect its parent directories. `SSH_MCP_TARGETS` can contain SSH passwords, and `SSH_MCP_HTTP_CREDENTIALS` contains bearer tokens. The launcher manages access to its environment file. HTTP tool errors use fixed messages for key loading, SSH transport failures and SFTP listing failures. Remote command output is still returned to the caller.
+
 SSH commands execute with the privileges of the configured SSH account; use least privilege. Never commit SSH keys, static tokens, OAuth credentials or signing keys. Only use verified host-key pins. The gateway replay cache is in-memory and supports one Node process; multiple instances require a shared atomic store. For detailed Japanese setup instructions, see [README.ja.md](./README.ja.md).
 
 **No changes to `main`, CT 200 or production Cloudflare configuration are implied by these branch instructions.**

@@ -87,7 +87,7 @@ server.tool(
   },
   async ({ target, remotePath }) => {
     try {
-      const sshConfig = await sshConfigForTarget(resolveToolTarget(targets, target, context, mode));
+      const sshConfig = await sshConfigForTarget(resolveToolTarget(targets, target, context, mode), mode);
       const list = await execSftpCommand(sshConfig, 'list', remotePath) as { filename: string, longname: string }[];
       return {
         content: [{
@@ -104,7 +104,7 @@ server.tool(
 
 // 执行 SFTP 命令
 async function execSftpCommand(sshConfig: any, action: string, ...args: any[]) {
-  return runSftpOperation(sshConfig, connectionGate, transferOptions.timeoutMs, async conn => {
+  const operation = runSftpOperation(sshConfig, connectionGate, transferOptions.timeoutMs, async conn => {
     const sftp = await new Promise<import('ssh2').SFTPWrapper>((resolve, reject) =>
       conn.sftp((error, channel) => error ? reject(error) : resolve(channel)));
     switch (action) {
@@ -119,6 +119,10 @@ async function execSftpCommand(sshConfig: any, action: string, ...args: any[]) {
         throw new McpError(ErrorCode.InternalError, 'Invalid SFTP action');
     }
   }, context.signal);
+  if (mode === 'stdio') return operation;
+  return operation.catch(() => {
+    throw new Error('SSH directory listing failed');
+  });
 }
 
 server.tool(
@@ -134,7 +138,7 @@ server.tool(
       throw new McpError(ErrorCode.InternalError, 'Command must be a non-empty string.');
     }
     try {
-      const sshConfig = await sshConfigForTarget(resolveToolTarget(targets, target, context, mode));
+      const sshConfig = await sshConfigForTarget(resolveToolTarget(targets, target, context, mode), mode);
       const result = await execSshCommand(sshConfig, command);
       return result;
     } catch (err: any) {
@@ -177,12 +181,16 @@ async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: st
 
     context.signal?.addEventListener('abort', abort, { once: true });
     if (context.signal?.aborted) { abort(); return; }
+    function failSsh(error: Error) {
+      finish(mode === 'http' ? new Error('SSH command execution failed') : error);
+    }
+
     conn.on('ready', () => {
       if (settled) return;
       conn.exec(command, (err, stream) => {
         if (settled) { stream?.close(); return; }
         if (err) {
-          finish(err);
+          failSsh(err);
           return;
         }
         stream.on('data', (chunk: Buffer) => {
@@ -205,7 +213,7 @@ async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: st
             finish(error instanceof Error ? error : new Error(String(error)));
           }
         });
-        stream.on('error', (error: Error) => finish(error));
+        stream.on('error', failSsh);
         stream.on('close', (code: number | null, signal: string | null) => {
           if (settled) return;
           try {
@@ -216,11 +224,11 @@ async function execSshCommand(sshConfig: any, command: string): Promise<{ [x: st
         });
       });
     });
-    conn.on('error', (error) => finish(error));
+    conn.on('error', failSsh);
     try {
       conn.connect(sshConfig);
     } catch (error) {
-      finish(error instanceof Error ? error : new Error(String(error)));
+      failSsh(error instanceof Error ? error : new Error(String(error)));
     }
   });
 }

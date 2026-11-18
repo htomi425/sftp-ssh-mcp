@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { open, readFile } from 'node:fs/promises';
 import { validateConnectionOptions } from './connection-config.js';
 import { createHostKeyVerifier } from './host-key.js';
 
@@ -29,7 +30,7 @@ export function parseTargets(raw: string | undefined, legacy: Target | undefined
   if (!entries.length || entries.length > 32) throw new Error('SSH_MCP_TARGETS must define 1 to 32 targets');
   const targets: TargetRegistry = Object.create(null);
   for (const [name, value] of entries) {
-    if (!NAME_PATTERN.test(name)) throw new Error('Invalid SSH target name: ' + name);
+    if (!NAME_PATTERN.test(name)) throw new Error('Invalid SSH target name');
     targets[name] = validateTarget(value);
   }
   return targets;
@@ -40,7 +41,7 @@ function validateTarget(value: unknown): Target {
   const target = value as Record<string, unknown>;
   const allowed = new Set(['host', 'port', 'user', 'password', 'key', 'hostKeySha256']);
   for (const field of Object.keys(target)) {
-    if (!allowed.has(field)) throw new Error('Unknown SSH target field: ' + field);
+    if (!allowed.has(field)) throw new Error('Unknown SSH target field');
   }
   if (typeof target.host !== 'string' || typeof target.user !== 'string') throw new Error('SSH target host and user are required');
   const port = target.port === undefined ? 22 : target.port;
@@ -59,7 +60,27 @@ export function selectTarget(registry: TargetRegistry, name?: string): Target {
   return registry[selected];
 }
 
-export async function sshConfigForTarget(target: Target) {
+async function readHttpPrivateKey(path: string): Promise<string> {
+  try {
+    const uid = process.geteuid?.();
+    if (uid === undefined) return await readFile(path, 'utf8');
+
+    const keyFile = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const stat = await keyFile.stat();
+      if (!stat.isFile() || stat.uid !== uid || (stat.mode & 0o077) !== 0) {
+        throw new Error('Unsafe SSH private key file');
+      }
+      return await keyFile.readFile('utf8');
+    } finally {
+      await keyFile.close();
+    }
+  } catch {
+    throw new Error('SSH private key is unavailable');
+  }
+}
+
+export async function sshConfigForTarget(target: Target, mode: 'stdio' | 'http' = 'stdio') {
   return {
     host: target.host,
     port: target.port ?? 22,
@@ -67,6 +88,6 @@ export async function sshConfigForTarget(target: Target) {
     readyTimeout: 10000,
     hostHash: 'sha256' as const,
     hostVerifier: createHostKeyVerifier(target.hostKeySha256),
-    ...(target.password ? { password: target.password } : { privateKey: await readFile(target.key!, 'utf8') }),
+    ...(target.password ? { password: target.password } : { privateKey: mode === 'http' ? await readHttpPrivateKey(target.key!) : await readFile(target.key!, 'utf8') }),
   };
 }
