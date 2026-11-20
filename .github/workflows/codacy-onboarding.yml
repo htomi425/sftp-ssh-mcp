@@ -1,0 +1,91 @@
+name: Codacy local analysis (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+      - name: Install pinned analysis CLI
+        run: npm install --global @codacy/analysis-cli@0.29.1
+      - name: Inspect supported commands
+        run: |
+          codacy-analysis --version
+          codacy-analysis init --help
+          codacy-analysis analyze --help
+      - name: Install project type dependencies
+        run: npm ci
+      - name: Discover stack and initialize broad configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .codacy/tmp
+          codacy-analysis discover --output-format json --output .codacy/tmp/discover.json
+          if [ ! -f .codacy/codacy.config.json ]; then
+            codacy-analysis init --auto 'Critical,High,Warning,Minor,AllSecurity,ErrorProne,Performance,BestPractice,UnusedCode,Compatibility,Complexity,Comprehensibility,CodeStyle,Documentation'
+          fi
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = '.codacy/codacy.config.json';
+          const config = JSON.parse(readFileSync(path, 'utf8'));
+          if (!config.tools?.length) throw new Error('No analysis tools configured');
+          config.exclude = [...new Set([...(config.exclude ?? []), 'node_modules/**', 'build/**', 'coverage/**', '.git/**', '.codacy/**'])];
+          writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+          console.log(JSON.stringify(config.tools.map(tool => ({tool:tool.toolId,patterns:tool.patterns.length})),null,2));
+          NODE
+      - name: Inspect capabilities
+        run: codacy-analysis analyze --inspect --output-format json --output .codacy/tmp/capabilities.json
+      - name: Install engines and collect baseline
+        shell: bash
+        run: |
+          set +e
+          codacy-analysis analyze --install-dependencies --output-format json --output .codacy/tmp/baseline.json
+          status=$?
+          echo "Baseline exit status: $status"
+          if [ "$status" -gt 1 ]; then exit "$status"; fi
+      - name: Strict analysis (findings are report-only)
+        shell: bash
+        run: |
+          set +e
+          codacy-analysis analyze --fail-if-missing --output-format json --output .codacy/tmp/results.json
+          status=$?
+          echo "Strict analysis exit status: $status"
+          if [ "$status" -gt 1 ]; then exit "$status"; fi
+      - name: Verify execution and summarize
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+          const report = JSON.parse(readFileSync('.codacy/tmp/results.json','utf8'));
+          const results = report.toolResults ?? [];
+          const unavailable = report.capability?.unavailable ?? [];
+          const errors = report.errors ?? [];
+          const incomplete = results.filter(tool => tool.status !== 'success');
+          const scanned = results.reduce((total, tool) => total + (tool.filesAnalyzed ?? 0), 0);
+          const counts = {};
+          for (const issue of report.issues ?? []) {
+            const key = issue.category + ':' + issue.severity;
+            counts[key] = (counts[key] ?? 0) + 1;
+          }
+          const summary = {mode:'report-only',sourceCommit:process.env.GITHUB_SHA,cliVersion:'0.29.1',tools:results,unavailable,errors,issueCount:(report.issues ?? []).length,byCategorySeverity:counts};
+          writeFileSync('.codacy/tmp/summary.json',JSON.stringify(summary,null,2)+'\n');
+          console.log(JSON.stringify(summary,null,2));
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY,'## Codacy onboarding\n\nFindings are report-only. A successful job is not a clean security approval.\n\n'+JSON.stringify({issues:summary.issueCount,tools:results.map(x=>x.toolId),byCategorySeverity:counts},null,2)+'\n');
+          if (!results.length || !scanned || unavailable.length || errors.length || incomplete.length) {
+            throw new Error('Incomplete analysis; inspect uploaded reports, do not treat as clean');
+          }
+          NODE
+      - name: Preserve generated config and reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: codacy-onboarding
+          path: .codacy/
+          include-hidden-files: true
+          if-no-files-found: error

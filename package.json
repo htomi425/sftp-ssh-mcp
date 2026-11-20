@@ -11,6 +11,7 @@
   "scripts": {
     "prepare": "npm run build",
     "build": "tsc && shx chmod +x build/*.js",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "inspect": "npx @modelcontextprotocol/inspector node build/index.js"
   },
   "files": [
@@ -19,11 +20,12 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.2",
     "ssh2": "^1.11.0",
-    "zod": "^3.24.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^20.17.31",
     "@types/ssh2": "^1.15.5",
+    "jose": "6.2.17",
     "shx": "^0.4.0",
     "typescript": "^5.4.5"
   }
