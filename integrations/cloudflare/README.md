@@ -82,3 +82,33 @@ The Access test uses locally signed JWTs and workerd with a separate authorizati
 and resource Worker, private Service Bindings, shared Durable Object state and
 OAuth KV. Deployment manifests, real Access/IdP login and the production Tunnel
 route are tracked in the [session design](../../docs/cloudflare-oauth-session.md).
+
+### Google OpenID Connect login
+
+Use `createGoogleAuthorizationWorker` with the same OAuth Provider and private
+`AUTH_SERVER` binding. Each new GET to `/authorize` starts a Google code flow
+with `prompt=select_account`. Register the exact authorization origin plus
+`/google/callback` as a redirect URI in the Google web client. The Worker also
+serves `/google/consent` for the verified browser transaction. Keep these
+routes reachable in the Google configuration so an Access login does not
+intercept account selection.
+
+Set `GOOGLE_CLIENT_ID`, and supply `GOOGLE_CLIENT_SECRET` and the comma-separated
+`GOOGLE_ALLOWED_EMAILS` as Workers secrets. The allowlist accepts verified Gmail
+accounts and verified Google Workspace emails whose domain matches the signed
+`hd` claim. Export the class returned by `createGoogleAuthorizationFlow(DurableObject)`
+and bind it privately as `OAUTH_GOOGLE_FLOW` with a SQLite Durable Object migration.
+Keep `OAUTH_KV`, `OAUTH_SUBJECT_STATE` and `OAUTH_CONSENT_SIGNING_SECRET` configured.
+
+The browser has ten minutes from the start of authorization to complete consent.
+The MCP grant ends at the Google ID token expiry or three days after approval,
+whichever comes first. Google uses its own issuer and stable `sub` for subject
+state and Node target mappings. Add a target mapping for
+`JSON.stringify(['https://accounts.google.com', googleSubject])` for each allowed
+SSH identity. Call the same trusted `setSubjectStopped` method with the Google
+subject when revoking or removing access. Removing an email from the allowlist
+prevents future logins, and stopping its subject revokes an existing grant.
+
+The PKCE validation script exercises Google login with a local mock token endpoint
+and signed ID tokens, including repeat account selection, identity-bound consent,
+token refresh and per-subject revocation.

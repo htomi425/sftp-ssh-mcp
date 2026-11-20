@@ -39,8 +39,18 @@ export function createAccessAuthorizationWorker({
   OAuthAuthorizationServer, OAuthError, providerOptions,
   access, secretBinding = 'OAUTH_CONSENT_SIGNING_SECRET',
 }) {
+  return createIdentityAuthorizationWorker({
+    OAuthAuthorizationServer, OAuthError, providerOptions, secretBinding,
+    issuer: access.issuer, authenticateUser: createAccessAuthenticator(access),
+  });
+}
+
+export function createIdentityAuthorizationWorker({
+  OAuthAuthorizationServer, OAuthError, providerOptions, issuer, authenticateUser,
+  secretBinding = 'OAUTH_CONSENT_SIGNING_SECRET', browserAuthorization,
+}) {
   const policy = createAccessGrantPolicy({
-    authenticateAccessUser: createAccessAuthenticator(access), OAuthError,
+    authenticateAccessUser: authenticateUser, OAuthError,
   });
   const provider = new OAuthAuthorizationServer({
     ...providerOptions,
@@ -59,12 +69,17 @@ export function createAccessAuthorizationWorker({
   });
   return {
     ...worker,
+    fetch(request, env, ctx) {
+      if (!browserAuthorization) return worker.fetch(request, env, ctx);
+      return browserAuthorization.fetch(request, env, ctx, worker,
+        (incoming, bindings) => provider.getOAuthApi(bindings).parseAuthRequest(incoming));
+    },
     setSubjectStopped(env, subject, stopped) {
       if (typeof subject !== 'string' || !subject || subject.length > 512) {
-        throw new TypeError('Access subject required');
+        throw new TypeError('OAuth subject required');
       }
       return setAccessSubjectStopped({
-        env, oauth: provider.getOAuthApi(env), issuer: access.issuer, subject, stopped,
+        env, oauth: provider.getOAuthApi(env), issuer, subject, stopped,
       });
     },
   };

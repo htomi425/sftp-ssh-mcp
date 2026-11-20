@@ -14,6 +14,11 @@ export function renderOAuthConsent({ details, consent }) {
   const scope = details?.scope ?? details?.scopes ?? ['mcp:invoke'];
   const scopes = Array.isArray(scope) ? scope : [];
   const scopeItems = scopes.map(value => '<li>' + escapeHtml(value) + '</li>').join('');
+  // Some browsers apply form-action to the OAuth redirect as well as the POST.
+  // Only add the origin of the redirect URI already validated by the provider.
+  const redirectOrigin = URL.canParse(details?.redirectUri) ? new URL(details.redirectUri).origin : '';
+  const callbackSource = /^https?:\/\/(?:[a-z0-9.-]+|\[[a-f0-9:]+\])(?::\d+)?$/i.test(redirectOrigin)
+    ? ' ' + redirectOrigin : '';
   const html = '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<title>Authorize SSH MCP access</title></head><body><main>' +
@@ -29,9 +34,10 @@ export function renderOAuthConsent({ details, consent }) {
   for (const [name, value] of Object.entries({
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
-      'Referrer-Policy': 'no-referrer',
+      'Referrer-Policy': 'same-origin',
       'X-Content-Type-Options': 'nosniff',
-      'Content-Security-Policy': "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      'Content-Security-Policy': "default-src 'none'; form-action 'self'" + callbackSource +
+        "; base-uri 'none'; frame-ancestors 'none'",
   })) headers.set(name, value);
   return new Response(html, { headers });
 }

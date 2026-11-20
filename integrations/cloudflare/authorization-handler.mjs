@@ -118,38 +118,45 @@ export function createAuthorizationHandler({ getOAuthApi, authenticateUser, rend
       const providerHandle = await bindConsent.verify(handle, user, env);
       if (!providerHandle) return new Response('Consent identity mismatch', { status: 403 });
       const decision = form.get('decision');
-      if (decision === 'deny') {
-        const denied = await oauth.denyConsent(request, providerHandle);
-        return new Response(null, { status: 302, headers: denied.headers });
-      }
-      if (decision !== 'approve') return new Response('Invalid consent decision', { status: 400 });
-      let grant;
       try {
-        grant = await prepareGrant(user, env);
-      } catch {
-        return new Response('Authorization service unavailable', { status: 503,
-          headers: { 'Cache-Control': 'no-store' } });
+        if (decision === 'deny') {
+          const denied = await oauth.denyConsent(request, providerHandle);
+          return new Response(null, { status: 302, headers: denied.headers });
+        }
+        if (decision !== 'approve') return new Response('Invalid consent decision', { status: 400 });
+        let grant;
+        try {
+          grant = await prepareGrant(user, env);
+        } catch {
+          return new Response('Authorization service unavailable', { status: 503,
+            headers: { 'Cache-Control': 'no-store' } });
+        }
+        if (!grant) return new Response('Login required', { status: 401 });
+        // Scope is selected by the provider's stored request, not POST form data.
+        const approved = await oauth.approveConsent(request, providerHandle, {
+          scope: ['mcp:invoke'],
+        });
+        if (!approved?.request || !Array.isArray(approved.request.scope) ||
+            !approved.request.scope.includes('mcp:invoke') ||
+            approved.request.scope.some(scope => scope !== 'mcp:invoke')) {
+          return new Response('Requested scope not permitted', { status: 403 });
+        }
+        const { redirectTo } = await oauth.completeAuthorization({
+          request: approved.request,
+          ...grant,
+          scope: ['mcp:invoke'],
+        });
+        // Preserve the OAuth provider's response headers (including consent
+        // cookie updates) when redirecting to the validated OAuth client.
+        const headers = new Headers(approved.headers);
+        headers.set('Location', redirectTo);
+        return new Response(null, { status: 302, headers });
+      } catch (error) {
+        if (error?.name !== 'AuthorizationError' || error.code !== 'invalid_request') throw error;
+        return new Response('This consent request is no longer valid. Start authorization again.', {
+          status: 400, headers: { 'Cache-Control': 'no-store' },
+        });
       }
-      if (!grant) return new Response('Login required', { status: 401 });
-      // Scope is selected by the provider's stored request, not POST form data.
-      const approved = await oauth.approveConsent(request, providerHandle, {
-        scope: ['mcp:invoke'],
-      });
-      if (!approved?.request || !Array.isArray(approved.request.scope) ||
-          !approved.request.scope.includes('mcp:invoke') ||
-          approved.request.scope.some(scope => scope !== 'mcp:invoke')) {
-        return new Response('Requested scope not permitted', { status: 403 });
-      }
-      const { redirectTo } = await oauth.completeAuthorization({
-        request: approved.request,
-        ...grant,
-        scope: ['mcp:invoke'],
-      });
-      // Preserve the OAuth provider's response headers (including consent
-      // cookie updates) when redirecting to the validated OAuth client.
-      const headers = new Headers(approved.headers);
-      headers.set('Location', redirectTo);
-      return new Response(null, { status: 302, headers });
     },
   };
 }

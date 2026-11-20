@@ -91,16 +91,18 @@ try {
   async function consent(jwt) {
     const response = await authorize(jwt);
     assert.equal(response.status, 200);
+    assert.ok(response.headers.get('Content-Security-Policy')
+      .includes("form-action 'self' " + new URL(redirectUri).origin + ";"));
     const cookie = response.headers.get('Set-Cookie').split(';', 1)[0];
     const html = await response.text();
     const handle = html.match(/name="handle" value="([^"]+)"/)?.[1];
     assert.ok(handle);
     return { cookie, handle };
   }
-  function approve({ cookie, handle }, jwt) {
+  function approve({ cookie, handle }, jwt, decision = 'approve') {
     return auth.fetch(metadata.authorization_endpoint, { method: 'POST', redirect: 'manual',
       headers: { Cookie: cookie, 'Cf-Access-Jwt-Assertion': jwt, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ handle, decision: 'approve' }),
+      body: new URLSearchParams({ handle, decision }),
     });
   }
   async function codeFor(jwt) {
@@ -130,6 +132,18 @@ try {
   const initialJwt = accessToken(firstKey);
   const initialConsent = await consent(initialJwt);
   assert.equal((await approve(initialConsent, accessToken(firstKey, { sub: 'other-user' }))).status, 403);
+  for (const decision of ['approve', 'deny']) {
+    const transaction = await consent(initialJwt);
+    const decisionResponse = await approve(transaction, initialJwt, decision);
+    assert.equal(decisionResponse.status, 302);
+    const callback = new URL(decisionResponse.headers.get('Location'));
+    assert.equal(callback.origin, new URL(redirectUri).origin);
+    assert.ok(decision === 'approve' ? callback.searchParams.has('code')
+      : callback.searchParams.get('error') === 'access_denied');
+    const repeated = await approve(transaction, initialJwt, decision);
+    assert.equal(repeated.status, 400);
+    assert.match(await repeated.text(), /Start authorization again/);
+  }
   publishedKeys = [nextKey.jwk];
   const rotatedJwt = accessToken(nextKey);
   const rotatedConsent = await consent(rotatedJwt);
